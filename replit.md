@@ -4,6 +4,16 @@
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
+## Artifacts
+
+- `audio-deconstructor` (`/`): Browser-only single-page app for studying audio tracks.
+  Vanilla HTML / CSS / JS (no React, no backend, no external APIs). Uses the Web Audio
+  API for decoding, playback, and analysis (waveform, spectrum, scrolling spectrogram,
+  stereo lissajous, RMS / band / stereo metrics) plus a manual marker + notes system
+  with JSON / CSV import/export. Files: `index.html`, `src/style.css`, `src/script.js`.
+- `api-server` (`/api`): Express API scaffold (currently unused by audio-deconstructor).
+- `mockup-sandbox`: Canvas mockup sandbox (unused).
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
