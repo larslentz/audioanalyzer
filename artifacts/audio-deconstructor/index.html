@@ -31,6 +31,11 @@
           <kbd class="hint">L</kbd><span class="hint-label">loop</span>
           <kbd class="hint">[ ]</kbd><span class="hint-label">loop in/out</span>
           <kbd class="hint">T</kbd><span class="hint-label">tap tempo</span>
+          <kbd class="hint">B</kbd><span class="hint-label">A/B swap</span>
+          <div class="ab-indicator" id="ab-indicator" title="Currently playing source — click to swap (B)">
+            <button class="ab-side active" data-side="A" id="ab-side-a">A</button>
+            <button class="ab-side" data-side="B" id="ab-side-b" disabled>B</button>
+          </div>
           <button class="btn ghost" id="btn-import-json" title="Import a previously saved session JSON">Import session</button>
           <button class="btn ghost" id="btn-export-json" title="Export markers + notes as JSON">Export JSON</button>
           <button class="btn ghost" id="btn-export-csv" title="Export markers as CSV">Export CSV</button>
@@ -64,6 +69,34 @@
               <div class="meta-row"><span>Size</span><strong id="meta-size">—</strong></div>
               <div class="meta-row"><span>Est. bitrate</span><strong id="meta-bitrate">—</strong></div>
             </div>
+          </section>
+
+          <section class="card" id="reference-card">
+            <h2 class="card-title">Reference (B) <span class="badge subtle">A/B compare</span></h2>
+            <div class="dropzone compact" id="ref-dropzone" tabindex="0" aria-label="Drop a reference audio file for A/B comparison">
+              <div class="dz-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>
+                </svg>
+              </div>
+              <div class="dz-text">
+                <strong>Drop a reference track</strong>
+                <span>compare against your main track</span>
+              </div>
+              <input type="file" id="ref-file-input" accept="audio/*" hidden />
+            </div>
+            <div class="meta-grid compact" id="ref-meta-grid" hidden>
+              <div class="meta-row"><span>File</span><strong id="ref-meta-name">—</strong></div>
+              <div class="meta-row"><span>Duration</span><strong id="ref-meta-duration">—</strong></div>
+            </div>
+            <div class="ab-controls" id="ab-controls" hidden>
+              <label class="snap-toggle" title="When looping, automatically swap A/B at every loop boundary so you can hear them back to back">
+                <input type="checkbox" id="ab-alternate" />
+                <span>Alternate A/B each loop pass</span>
+              </label>
+              <button class="btn small ghost block" id="btn-ref-clear" title="Remove reference track">Remove reference</button>
+            </div>
+            <p class="muted-note">All analysis (waveform, markers, structure) reflects track A. Switch playback to B to hear how they differ at the same position.</p>
           </section>
 
           <section class="card">

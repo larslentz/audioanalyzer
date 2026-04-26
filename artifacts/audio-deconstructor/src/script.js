@@ -25,9 +25,14 @@ const CAT_BY_ID = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
 
 const state = {
   audioCtx: null,
-  buffer: null,            // AudioBuffer
+  buffer: null,            // AudioBuffer (track A — analysed)
   fileName: null,
   fileSize: 0,
+  refBuffer: null,         // AudioBuffer (track B — reference, audio-only)
+  refFileName: null,
+  refFileSize: 0,
+  activeSource: "A",       // which buffer is currently routed to playback
+  abAlternate: false,      // when looping, swap A/B at every loop pass
   source: null,            // AudioBufferSourceNode
   gainNode: null,
   analyserMix: null,       // mono mix analyser
@@ -112,6 +117,18 @@ const el = {
 
   structureStrip: q("#structure-strip"),
   structureSummary: q("#structure-summary"),
+
+  refDropzone: q("#ref-dropzone"),
+  refFileInput: q("#ref-file-input"),
+  refMetaGrid: q("#ref-meta-grid"),
+  refMetaName: q("#ref-meta-name"),
+  refMetaDuration: q("#ref-meta-duration"),
+  abControls: q("#ab-controls"),
+  abAlternate: q("#ab-alternate"),
+  btnRefClear: q("#btn-ref-clear"),
+  abIndicator: q("#ab-indicator"),
+  abSideA: q("#ab-side-a"),
+  abSideB: q("#ab-side-b"),
 
   timeCurrent: q("#time-current"),
   timeTotal: q("#time-total"),
@@ -230,6 +247,8 @@ async function handleFile(file) {
     state.buffer = decoded;
     state.fileName = file.name;
     state.fileSize = file.size;
+    state.activeSource = "A";
+    updateAbUi();
     state.startedFrom = 0;
     state.scroll = 0;
     state.zoom = 1;
@@ -258,6 +277,84 @@ async function handleFile(file) {
   }
 }
 
+async function handleRefFile(file) {
+  if (!file) return;
+  if (!/^audio\//i.test(file.type) && !/\.(wav|mp3|aac|m4a|ogg|opus|flac|webm)$/i.test(file.name)) {
+    showToast("That doesn't look like an audio file.", "error");
+    return;
+  }
+  if (!state.buffer) {
+    showToast("Load a main track first, then add a reference.", "error");
+    return;
+  }
+  showToast(`Decoding reference ${file.name}…`);
+  const ctx = getCtx();
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    state.refBuffer = decoded;
+    state.refFileName = file.name;
+    state.refFileSize = file.size;
+    updateRefMeta();
+    updateAbUi();
+    showToast("Reference track loaded — switch to B to compare.", "success");
+  } catch (e) {
+    console.error(e);
+    showToast("Could not decode reference file.", "error");
+  }
+}
+
+function clearReference() {
+  if (state.activeSource === "B") setActiveSource("A", { silent: true });
+  state.refBuffer = null;
+  state.refFileName = null;
+  state.refFileSize = 0;
+  state.abAlternate = false;
+  if (el.abAlternate) el.abAlternate.checked = false;
+  updateRefMeta();
+  updateAbUi();
+  showToast("Reference removed.");
+}
+
+function updateRefMeta() {
+  if (state.refBuffer) {
+    el.refMetaGrid.hidden = false;
+    el.abControls.hidden = false;
+    el.refMetaName.textContent = state.refFileName || "—";
+    el.refMetaDuration.textContent = formatTime(state.refBuffer.duration);
+  } else {
+    el.refMetaGrid.hidden = true;
+    el.abControls.hidden = true;
+    el.refMetaName.textContent = "—";
+    el.refMetaDuration.textContent = "—";
+  }
+}
+
+function updateAbUi() {
+  const hasRef = !!state.refBuffer;
+  el.abSideB.disabled = !hasRef;
+  el.abSideA.classList.toggle("active", state.activeSource === "A");
+  el.abSideB.classList.toggle("active", state.activeSource === "B");
+}
+
+function setActiveSource(side, opts = {}) {
+  if (side !== "A" && side !== "B") return;
+  if (side === "B" && !state.refBuffer) {
+    showToast("Load a reference track first.");
+    return;
+  }
+  if (state.activeSource === side) { updateAbUi(); return; }
+  state.activeSource = side;
+  updateAbUi();
+  if (!opts.silent) {
+    showToast(side === "A" ? "Now playing: A (main)" : "Now playing: B (reference)", "success");
+  }
+  if (state.isPlaying && opts.restart !== false) {
+    const t = currentTime();
+    playFrom(t);
+  }
+}
+
 function updateMeta() {
   if (!state.buffer) return;
   el.metaName.textContent = state.fileName || "—";
@@ -275,14 +372,19 @@ function updateMeta() {
 
 /* ---------------- Playback ---------------- */
 
+function getActiveBuffer() {
+  return state.activeSource === "B" && state.refBuffer ? state.refBuffer : state.buffer;
+}
+
 function playFrom(time) {
   if (!state.buffer) return;
   stopPlayback(true); // silent stop
   const ctx = getCtx();
   if (ctx.state === "suspended") ctx.resume();
 
+  const playBuf = getActiveBuffer();
   const src = ctx.createBufferSource();
-  src.buffer = state.buffer;
+  src.buffer = playBuf;
   src.playbackRate.value = state.rate;
 
   // Build analyser graph
@@ -301,7 +403,7 @@ function playFrom(time) {
   src.connect(analyserMix);
   src.connect(splitter);
   splitter.connect(analyserL, 0);
-  splitter.connect(analyserR, state.buffer.numberOfChannels > 1 ? 1 : 0);
+  splitter.connect(analyserR, playBuf.numberOfChannels > 1 ? 1 : 0);
 
   analyserMix.connect(state.gainNode);
 
@@ -320,7 +422,7 @@ function playFrom(time) {
     }
   };
 
-  const startTime = clamp(time, 0, state.buffer.duration - 0.001);
+  const startTime = clamp(time, 0, playBuf.duration - 0.001);
   state.startedAt = ctx.currentTime;
   state.startedFrom = startTime;
   src.start(0, startTime);
@@ -362,11 +464,12 @@ function togglePlay() {
 
 function currentTime() {
   if (!state.buffer) return 0;
+  const playBuf = getActiveBuffer();
   if (state.isPlaying && state.audioCtx) {
     const t = state.startedFrom + (state.audioCtx.currentTime - state.startedAt) * state.rate;
-    return clamp(t, 0, state.buffer.duration);
+    return clamp(t, 0, playBuf.duration);
   }
-  return clamp(state.startedFrom, 0, state.buffer.duration);
+  return clamp(state.startedFrom, 0, playBuf.duration);
 }
 
 function seekTo(t) {
@@ -390,6 +493,9 @@ function scheduleLoopWatcher() {
 }
 function seekToLoopStart() {
   if (state.isLooping && state.loopIn != null && state.loopOut != null) {
+    if (state.abAlternate && state.refBuffer) {
+      setActiveSource(state.activeSource === "A" ? "B" : "A", { silent: true, restart: false });
+    }
     playFrom(state.loopIn);
   }
 }
@@ -1612,6 +1718,30 @@ function bindEvents() {
     e.target.value = "";
   });
 
+  // Reference (B) drop zone
+  ["dragenter", "dragover"].forEach(ev =>
+    el.refDropzone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); el.refDropzone.classList.add("drag"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    el.refDropzone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); el.refDropzone.classList.remove("drag"); }));
+  el.refDropzone.addEventListener("drop", (e) => {
+    const f = e.dataTransfer?.files?.[0];
+    if (f) handleRefFile(f);
+  });
+  el.refDropzone.addEventListener("click", () => el.refFileInput.click());
+  el.refDropzone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.refFileInput.click(); } });
+  el.refFileInput.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (f) handleRefFile(f);
+    e.target.value = "";
+  });
+  el.btnRefClear.addEventListener("click", clearReference);
+  el.abAlternate.addEventListener("change", (e) => {
+    state.abAlternate = e.target.checked;
+    showToast(state.abAlternate ? "Alternate A/B per loop pass on" : "Alternate A/B off");
+  });
+  el.abSideA.addEventListener("click", () => setActiveSource("A"));
+  el.abSideB.addEventListener("click", () => setActiveSource("B"));
+
   // Transport
   el.btnPlay.addEventListener("click", togglePlay);
   el.btnStop.addEventListener("click", () => { stopPlayback(); state.startedFrom = 0; updatePlayhead(); updateTimeReadout(); });
@@ -1834,6 +1964,7 @@ function bindEvents() {
     if (e.code === "Space") { e.preventDefault(); togglePlay(); }
     else if (e.key === "m" || e.key === "M") { if (state.buffer) addMarkerAt(currentTime(), state.selectedCategory); }
     else if (e.key === "t" || e.key === "T") { tapTempo(); }
+    else if (e.key === "b" || e.key === "B") { setActiveSource(state.activeSource === "A" ? "B" : "A"); }
     else if (e.key === "l" || e.key === "L") { el.btnLoop.click(); }
     else if (e.key === "[") { el.btnLoopIn.click(); }
     else if (e.key === "]") { el.btnLoopOut.click(); }
@@ -1860,6 +1991,8 @@ function bindEvents() {
 function init() {
   buildCategoryChips();
   bindEvents();
+  updateRefMeta();
+  updateAbUi();
   // Always run an animation tick so resize / zoom always update analyzer
   if (!state.rafId) state.rafId = requestAnimationFrame(tick);
 }
