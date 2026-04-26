@@ -49,6 +49,7 @@ const state = {
   selectedCategory: "verse",
   fftSize: 2048,
   specTheme: "aurora",
+  snapToZero: true,
   energyHistory: [],       // recent rms samples (for energy view)
   observations: [],        // recent observation messages
   lastObsTime: -10,
@@ -92,6 +93,7 @@ const el = {
   btnLoopClear: q("#btn-loop-clear"),
   loopInReadout: q("#loop-in-readout"),
   loopOutReadout: q("#loop-out-readout"),
+  snapZero: q("#snap-zero"),
 
   timeCurrent: q("#time-current"),
   timeTotal: q("#time-total"),
@@ -670,6 +672,17 @@ function onDragMarker(e) {
   if (m) { m.time = t; renderMarkerLane(); drawOverview(); renderMarkerList(); }
 }
 function endDragMarker() {
+  const drag = state.draggingMarker;
+  if (drag) {
+    const m = state.markers.find(mm => mm.id === drag.id);
+    if (m) {
+      m.time = snapToZeroCrossing(m.time);
+      state.markers.sort((a, b) => a.time - b.time);
+      renderMarkerLane();
+      drawOverview();
+      renderMarkerList();
+    }
+  }
   state.draggingMarker = null;
   window.removeEventListener("mousemove", onDragMarker);
 }
@@ -717,8 +730,17 @@ function onDragLoopHandle(e) {
   scheduleLoopWatcher();
 }
 function endDragLoopHandle() {
+  if (state.draggingLoopHandle === "in" && state.loopIn != null) {
+    state.loopIn = snapToZeroCrossing(state.loopIn);
+  } else if (state.draggingLoopHandle === "out" && state.loopOut != null) {
+    state.loopOut = snapToZeroCrossing(state.loopOut);
+  }
   state.draggingLoopHandle = null;
   window.removeEventListener("mousemove", onDragLoopHandle);
+  renderLoopRegion();
+  drawOverview();
+  updateLoopReadout();
+  scheduleLoopWatcher();
 }
 
 function updateLoopReadout() {
@@ -752,11 +774,65 @@ function updateTimeReadout() {
 
 /* ---------------- Markers list / editor ---------------- */
 
+/**
+ * Snap a time (seconds) to the nearest zero-crossing in the buffer within ±10 ms.
+ * Uses the mono mix of available channels. Returns the original time if snapping
+ * is disabled, no buffer is loaded, or no crossing is found in the search window.
+ * Heuristic: prefers exact sign-change samples over just-near-zero samples.
+ */
+function snapToZeroCrossing(time) {
+  if (!state.snapToZero || !state.buffer) return time;
+  const buf = state.buffer;
+  const sr = buf.sampleRate;
+  const dur = buf.duration;
+  const t = clamp(time, 0, dur);
+  const center = Math.round(t * sr);
+  const window = Math.round(0.010 * sr); // ±10 ms
+  const lo = Math.max(0, center - window);
+  const hi = Math.min(buf.length - 2, center + window);
+  if (hi <= lo) return t;
+
+  const ch0 = buf.getChannelData(0);
+  const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null;
+  const sampleAt = (i) => ch1 ? (ch0[i] + ch1[i]) * 0.5 : ch0[i];
+
+  let bestCrossingIdx = -1;
+  let bestCrossingDist = Infinity;
+  let bestNearZeroIdx = -1;
+  let bestNearZeroAbs = Infinity;
+
+  let prev = sampleAt(lo);
+  for (let i = lo + 1; i <= hi; i++) {
+    const cur = sampleAt(i);
+    // Sign change between i-1 and i is a true zero crossing.
+    if ((prev <= 0 && cur > 0) || (prev >= 0 && cur < 0) || cur === 0) {
+      // Pick the side closer to zero.
+      const idx = Math.abs(cur) < Math.abs(prev) ? i : i - 1;
+      const dist = Math.abs(idx - center);
+      if (dist < bestCrossingDist) {
+        bestCrossingDist = dist;
+        bestCrossingIdx = idx;
+      }
+    }
+    const a = Math.abs(cur);
+    if (a < bestNearZeroAbs) {
+      bestNearZeroAbs = a;
+      bestNearZeroIdx = i;
+    }
+    prev = cur;
+  }
+
+  const chosen = bestCrossingIdx >= 0 ? bestCrossingIdx : bestNearZeroIdx;
+  if (chosen < 0) return t;
+  return clamp(chosen / sr, 0, dur);
+}
+
 function addMarkerAt(time, category) {
   const cat = CAT_BY_ID[category] || CAT_BY_ID["verse"];
+  const snapped = snapToZeroCrossing(time);
   const m = {
     id: uid(),
-    time: clamp(time, 0, state.buffer ? state.buffer.duration : 0),
+    time: clamp(snapped, 0, state.buffer ? state.buffer.duration : 0),
     label: cat.label,
     category: cat.id,
     color: cat.hex,
@@ -1348,9 +1424,13 @@ function bindEvents() {
       scheduleLoopWatcher();
     }
   });
-  el.btnLoopIn.addEventListener("click", () => { state.loopIn = currentTime(); if (state.loopOut == null || state.loopOut <= state.loopIn) state.loopOut = clamp(state.loopIn + 4, 0, state.buffer?.duration || 0); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
-  el.btnLoopOut.addEventListener("click", () => { state.loopOut = currentTime(); if (state.loopIn == null || state.loopIn >= state.loopOut) state.loopIn = Math.max(0, state.loopOut - 4); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
+  el.btnLoopIn.addEventListener("click", () => { state.loopIn = snapToZeroCrossing(currentTime()); if (state.loopOut == null || state.loopOut <= state.loopIn) state.loopOut = snapToZeroCrossing(clamp(state.loopIn + 4, 0, state.buffer?.duration || 0)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
+  el.btnLoopOut.addEventListener("click", () => { state.loopOut = snapToZeroCrossing(currentTime()); if (state.loopIn == null || state.loopIn >= state.loopOut) state.loopIn = snapToZeroCrossing(Math.max(0, state.loopOut - 4)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
   el.btnLoopClear.addEventListener("click", () => { state.loopIn = state.loopOut = null; renderLoopRegion(); drawOverview(); updateLoopReadout(); });
+  el.snapZero.addEventListener("change", (e) => {
+    state.snapToZero = e.target.checked;
+    showToast(state.snapToZero ? "Snap to zero-crossing on" : "Snap to zero-crossing off");
+  });
 
   // Markers
   el.btnAddMarker.addEventListener("click", () => {
@@ -1395,12 +1475,13 @@ function bindEvents() {
     const t = xToTime(x);
     if (e.shiftKey) {
       // shift+click sets loop in/out closest
-      if (state.loopIn == null) state.loopIn = t;
-      else if (state.loopOut == null) state.loopOut = t;
+      const ts = snapToZeroCrossing(t);
+      if (state.loopIn == null) state.loopIn = ts;
+      else if (state.loopOut == null) state.loopOut = ts;
       else {
-        const dIn = Math.abs(state.loopIn - t);
-        const dOut = Math.abs(state.loopOut - t);
-        if (dIn < dOut) state.loopIn = t; else state.loopOut = t;
+        const dIn = Math.abs(state.loopIn - ts);
+        const dOut = Math.abs(state.loopOut - ts);
+        if (dIn < dOut) state.loopIn = ts; else state.loopOut = ts;
       }
       if (state.loopIn != null && state.loopOut != null && state.loopIn > state.loopOut) {
         const tmp = state.loopIn; state.loopIn = state.loopOut; state.loopOut = tmp;
