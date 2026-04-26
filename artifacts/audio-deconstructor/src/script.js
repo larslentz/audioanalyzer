@@ -50,6 +50,12 @@ const state = {
   fftSize: 2048,
   specTheme: "aurora",
   snapToZero: true,
+  bpm: null,                 // beats per minute (user-supplied or tap-derived)
+  beatOffset: 0,             // seconds to first downbeat
+  beatsPerBar: 4,
+  showBeatGrid: false,
+  snapToBeat: false,
+  _tapTimes: [],             // recent tap timestamps (ctx-time seconds)
   energyHistory: [],       // recent rms samples (for energy view)
   observations: [],        // recent observation messages
   lastObsTime: -10,
@@ -94,6 +100,15 @@ const el = {
   loopInReadout: q("#loop-in-readout"),
   loopOutReadout: q("#loop-out-readout"),
   snapZero: q("#snap-zero"),
+
+  btnTap: q("#btn-tap"),
+  bpmInput: q("#bpm-input"),
+  btnSetFirstBeat: q("#btn-set-first-beat"),
+  beatOffsetInput: q("#beat-offset-input"),
+  beatsPerBarInput: q("#beats-per-bar-input"),
+  btnTempoClear: q("#btn-tempo-clear"),
+  showGrid: q("#show-grid"),
+  snapBeat: q("#snap-beat"),
 
   timeCurrent: q("#time-current"),
   timeTotal: q("#time-total"),
@@ -511,6 +526,8 @@ function drawWaveform() {
 
   // grid (vertical time lines)
   drawTimeGrid(ctx, w, h, dpr);
+  // beat grid (when tempo set + enabled)
+  drawBeatGrid(ctx, w, h, dpr);
 
   const startSec = state.scroll;
   const endSec = startSec + visibleDuration();
@@ -584,6 +601,41 @@ function drawTimeGrid(ctx, w, h, dpr) {
     const x = ((t - startSec) / visible) * w;
     ctx.beginPath();
     ctx.moveTo(x, 0); ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+}
+
+function drawBeatGrid(ctx, w, h, dpr) {
+  if (!state.buffer || !state.showBeatGrid || !state.bpm || state.bpm <= 0) return;
+  const beatLen = 60 / state.bpm;
+  const startSec = state.scroll;
+  const visible = visibleDuration();
+  const endSec = startSec + visible;
+  const offset = state.beatOffset || 0;
+  const bpb = Math.max(1, state.beatsPerBar | 0);
+
+  // beat index that's at or after startSec
+  let firstBeat = Math.ceil((startSec - offset) / beatLen);
+  let t = offset + firstBeat * beatLen;
+  // Skip beats before zero / start
+  while (t < startSec - beatLen * 0.5) { firstBeat++; t = offset + firstBeat * beatLen; }
+
+  // skip drawing if too dense (less than 4 px between beats)
+  const pxPerBeat = (beatLen / visible) * w;
+  if (pxPerBeat < 3) return;
+
+  ctx.lineWidth = 1 * dpr;
+  for (let i = firstBeat; ; i++) {
+    const tt = offset + i * beatLen;
+    if (tt > endSec) break;
+    if (tt < 0) continue;
+    const x = ((tt - startSec) / visible) * w;
+    const isDownbeat = ((i % bpb) + bpb) % bpb === 0;
+    ctx.strokeStyle = isDownbeat ? "rgba(255, 122, 220, 0.55)" : "rgba(140, 180, 255, 0.18)";
+    ctx.lineWidth = (isDownbeat ? 1.4 : 1) * dpr;
+    ctx.beginPath();
+    if (isDownbeat) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    else { ctx.moveTo(x, h * 0.15); ctx.lineTo(x, h * 0.85); }
     ctx.stroke();
   }
 }
@@ -676,7 +728,7 @@ function endDragMarker() {
   if (drag) {
     const m = state.markers.find(mm => mm.id === drag.id);
     if (m) {
-      m.time = snapToZeroCrossing(m.time);
+      m.time = snapTime(m.time);
       state.markers.sort((a, b) => a.time - b.time);
       renderMarkerLane();
       drawOverview();
@@ -731,9 +783,9 @@ function onDragLoopHandle(e) {
 }
 function endDragLoopHandle() {
   if (state.draggingLoopHandle === "in" && state.loopIn != null) {
-    state.loopIn = snapToZeroCrossing(state.loopIn);
+    state.loopIn = snapTime(state.loopIn);
   } else if (state.draggingLoopHandle === "out" && state.loopOut != null) {
-    state.loopOut = snapToZeroCrossing(state.loopOut);
+    state.loopOut = snapTime(state.loopOut);
   }
   state.draggingLoopHandle = null;
   window.removeEventListener("mousemove", onDragLoopHandle);
@@ -773,6 +825,78 @@ function updateTimeReadout() {
 }
 
 /* ---------------- Markers list / editor ---------------- */
+
+/* ---------------- Tempo helpers ---------------- */
+
+function setBpm(value, opts = {}) {
+  const v = Number(value);
+  if (!isFinite(v) || v <= 0) {
+    state.bpm = null;
+    el.bpmInput.value = "";
+  } else {
+    state.bpm = clamp(v, 20, 400);
+    el.bpmInput.value = state.bpm.toFixed(state.bpm % 1 === 0 ? 0 : 1);
+  }
+  if (opts.toast) showToast(state.bpm ? `Tempo: ${state.bpm.toFixed(1)} BPM` : "Tempo cleared", "success");
+  drawWaveform();
+  drawOverview();
+}
+
+function setBeatOffset(value) {
+  const v = Number(value);
+  state.beatOffset = isFinite(v) && v >= 0 ? v : 0;
+  el.beatOffsetInput.value = state.beatOffset.toFixed(3);
+  drawWaveform();
+}
+
+function setBeatsPerBar(value) {
+  const v = Math.max(1, Math.min(16, Math.round(Number(value) || 4)));
+  state.beatsPerBar = v;
+  el.beatsPerBarInput.value = v;
+  drawWaveform();
+}
+
+function tapTempo() {
+  const now = (state.audioCtx && state.audioCtx.currentTime) || performance.now() / 1000;
+  // drop taps older than 3 seconds since the most recent
+  state._tapTimes = state._tapTimes.filter(t => now - t < 3);
+  state._tapTimes.push(now);
+  // visual flash
+  el.btnTap.classList.add("flash");
+  setTimeout(() => el.btnTap.classList.remove("flash"), 90);
+  if (state._tapTimes.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < state._tapTimes.length; i++) {
+      intervals.push(state._tapTimes[i] - state._tapTimes[i - 1]);
+    }
+    const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    if (avg > 0) {
+      const bpm = 60 / avg;
+      if (bpm >= 20 && bpm <= 400) setBpm(bpm);
+    }
+  }
+}
+
+function snapTime(time) {
+  let t = time;
+  if (state.snapToBeat && state.bpm > 0) t = snapToBeatTime(t);
+  if (state.snapToZero) t = snapToZeroCrossing(t);
+  return t;
+}
+
+/**
+ * Snap to the nearest beat given the current BPM and first-beat offset.
+ * No-op if BPM is not set. Always rounds to the nearest beat (no window).
+ */
+function snapToBeatTime(time) {
+  if (!state.bpm || state.bpm <= 0) return time;
+  const beatLen = 60 / state.bpm;
+  const offset = state.beatOffset || 0;
+  const n = Math.round((time - offset) / beatLen);
+  let t = offset + n * beatLen;
+  if (state.buffer) t = clamp(t, 0, state.buffer.duration);
+  return t;
+}
 
 /**
  * Snap a time (seconds) to the nearest zero-crossing in the buffer within ±10 ms.
@@ -829,7 +953,7 @@ function snapToZeroCrossing(time) {
 
 function addMarkerAt(time, category) {
   const cat = CAT_BY_ID[category] || CAT_BY_ID["verse"];
-  const snapped = snapToZeroCrossing(time);
+  const snapped = snapTime(time);
   const m = {
     id: uid(),
     time: clamp(snapped, 0, state.buffer ? state.buffer.duration : 0),
@@ -1289,6 +1413,11 @@ function exportJson() {
     sampleRate: state.buffer ? state.buffer.sampleRate : null,
     channels: state.buffer ? state.buffer.numberOfChannels : null,
     loop: state.loopIn != null && state.loopOut != null ? { in: state.loopIn, out: state.loopOut } : null,
+    tempo: state.bpm ? {
+      bpm: state.bpm,
+      offset: state.beatOffset,
+      beatsPerBar: state.beatsPerBar
+    } : null,
     markers: state.markers.map(m => ({
       time: m.time, label: m.label, category: m.category, color: m.color, notes: m.notes
     })),
@@ -1340,6 +1469,11 @@ async function importJson(file) {
     if (parsed.loop && typeof parsed.loop.in === "number" && typeof parsed.loop.out === "number") {
       state.loopIn = parsed.loop.in;
       state.loopOut = parsed.loop.out;
+    }
+    if (parsed.tempo && typeof parsed.tempo.bpm === "number") {
+      setBpm(parsed.tempo.bpm);
+      setBeatOffset(parsed.tempo.offset || 0);
+      if (typeof parsed.tempo.beatsPerBar === "number") setBeatsPerBar(parsed.tempo.beatsPerBar);
     }
     renderMarkerList();
     renderMarkerLane();
@@ -1424,12 +1558,37 @@ function bindEvents() {
       scheduleLoopWatcher();
     }
   });
-  el.btnLoopIn.addEventListener("click", () => { state.loopIn = snapToZeroCrossing(currentTime()); if (state.loopOut == null || state.loopOut <= state.loopIn) state.loopOut = snapToZeroCrossing(clamp(state.loopIn + 4, 0, state.buffer?.duration || 0)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
-  el.btnLoopOut.addEventListener("click", () => { state.loopOut = snapToZeroCrossing(currentTime()); if (state.loopIn == null || state.loopIn >= state.loopOut) state.loopIn = snapToZeroCrossing(Math.max(0, state.loopOut - 4)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
+  el.btnLoopIn.addEventListener("click", () => { state.loopIn = snapTime(currentTime()); if (state.loopOut == null || state.loopOut <= state.loopIn) state.loopOut = snapTime(clamp(state.loopIn + 4, 0, state.buffer?.duration || 0)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
+  el.btnLoopOut.addEventListener("click", () => { state.loopOut = snapTime(currentTime()); if (state.loopIn == null || state.loopIn >= state.loopOut) state.loopIn = snapTime(Math.max(0, state.loopOut - 4)); renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher(); });
   el.btnLoopClear.addEventListener("click", () => { state.loopIn = state.loopOut = null; renderLoopRegion(); drawOverview(); updateLoopReadout(); });
   el.snapZero.addEventListener("change", (e) => {
     state.snapToZero = e.target.checked;
     showToast(state.snapToZero ? "Snap to zero-crossing on" : "Snap to zero-crossing off");
+  });
+
+  // Tempo controls
+  el.btnTap.addEventListener("click", tapTempo);
+  el.bpmInput.addEventListener("change", (e) => setBpm(e.target.value, { toast: true }));
+  el.btnSetFirstBeat.addEventListener("click", () => {
+    if (!state.buffer) { showToast("Load an audio file first."); return; }
+    setBeatOffset(currentTime());
+    showToast(`First beat set at ${formatTime(state.beatOffset)}`, "success");
+  });
+  el.beatOffsetInput.addEventListener("change", (e) => setBeatOffset(e.target.value));
+  el.beatsPerBarInput.addEventListener("change", (e) => setBeatsPerBar(e.target.value));
+  el.btnTempoClear.addEventListener("click", () => {
+    state._tapTimes = [];
+    setBpm(null);
+    setBeatOffset(0);
+    showToast("Tempo cleared");
+  });
+  el.showGrid.addEventListener("change", (e) => {
+    state.showBeatGrid = e.target.checked;
+    drawWaveform();
+  });
+  el.snapBeat.addEventListener("change", (e) => {
+    state.snapToBeat = e.target.checked;
+    if (state.snapToBeat && !state.bpm) showToast("Set a BPM first to snap to beats", "error");
   });
 
   // Markers
@@ -1475,7 +1634,7 @@ function bindEvents() {
     const t = xToTime(x);
     if (e.shiftKey) {
       // shift+click sets loop in/out closest
-      const ts = snapToZeroCrossing(t);
+      const ts = snapTime(t);
       if (state.loopIn == null) state.loopIn = ts;
       else if (state.loopOut == null) state.loopOut = ts;
       else {
@@ -1591,6 +1750,7 @@ function bindEvents() {
     if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
     if (e.code === "Space") { e.preventDefault(); togglePlay(); }
     else if (e.key === "m" || e.key === "M") { if (state.buffer) addMarkerAt(currentTime(), state.selectedCategory); }
+    else if (e.key === "t" || e.key === "T") { tapTempo(); }
     else if (e.key === "l" || e.key === "L") { el.btnLoop.click(); }
     else if (e.key === "[") { el.btnLoopIn.click(); }
     else if (e.key === "]") { el.btnLoopOut.click(); }

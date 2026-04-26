@@ -30,6 +30,7 @@
           <kbd class="hint">M</kbd><span class="hint-label">marker</span>
           <kbd class="hint">L</kbd><span class="hint-label">loop</span>
           <kbd class="hint">[ ]</kbd><span class="hint-label">loop in/out</span>
+          <kbd class="hint">T</kbd><span class="hint-label">tap tempo</span>
           <button class="btn ghost" id="btn-import-json" title="Import a previously saved session JSON">Import session</button>
           <button class="btn ghost" id="btn-export-json" title="Export markers + notes as JSON">Export JSON</button>
           <button class="btn ghost" id="btn-export-csv" title="Export markers as CSV">Export CSV</button>
@@ -109,6 +110,42 @@
               <input type="checkbox" id="snap-zero" checked />
               <span>Snap to zero-crossing</span>
             </label>
+          </section>
+
+          <section class="card">
+            <h2 class="card-title">Tempo <span class="badge">heuristic</span></h2>
+            <div class="tempo-row">
+              <button class="btn primary" id="btn-tap" title="Tap to set tempo (T)">Tap</button>
+              <div class="tempo-bpm">
+                <input type="number" id="bpm-input" min="0" max="300" step="0.1" placeholder="—" />
+                <span>BPM</span>
+              </div>
+            </div>
+            <div class="tempo-row">
+              <button class="btn small" id="btn-set-first-beat" title="Mark the first downbeat at the current playhead">Set first beat</button>
+              <div class="tempo-offset">
+                <span>at</span>
+                <input type="number" id="beat-offset-input" min="0" step="0.001" placeholder="0.000" />
+                <span>s</span>
+              </div>
+            </div>
+            <div class="tempo-row">
+              <label class="tempo-bars" title="Beats per bar — used to highlight downbeats on the grid">
+                <span>Bars of</span>
+                <input type="number" id="beats-per-bar-input" min="1" max="16" step="1" value="4" />
+                <span>beats</span>
+              </label>
+              <button class="btn small ghost" id="btn-tempo-clear" title="Clear tempo">Clear</button>
+            </div>
+            <label class="snap-toggle">
+              <input type="checkbox" id="show-grid" />
+              <span>Show beat grid</span>
+            </label>
+            <label class="snap-toggle">
+              <input type="checkbox" id="snap-beat" />
+              <span>Snap to beat</span>
+            </label>
+            <p class="muted-note">Tap the Tap button in time with the music, or type the BPM directly. Set first beat aligns the grid to the downbeat.</p>
           </section>
 
           <section class="card">

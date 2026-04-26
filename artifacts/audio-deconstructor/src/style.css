@@ -135,6 +135,31 @@ body {
 }
 .snap-toggle:hover { color: var(--text); border-color: var(--line-strong, var(--line)); }
 .snap-toggle input { accent-color: var(--accent); cursor: pointer; }
+
+/* ---------- Tempo card ---------- */
+.tempo-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.tempo-row .btn { flex-shrink: 0; }
+.tempo-bpm, .tempo-offset, .tempo-bars {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-mute);
+}
+.tempo-bpm input, .tempo-offset input, .tempo-bars input {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 4px; color: var(--text); font: inherit;
+  padding: 4px 6px; width: 64px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tempo-bpm input:focus, .tempo-offset input:focus, .tempo-bars input:focus {
+  outline: none; border-color: var(--accent);
+}
+.tempo-bpm input { width: 72px; font-weight: 600; color: var(--accent); font-size: 13px; }
+.tempo-bars input { width: 44px; }
+.tempo-bars { font-size: 11px; }
+#btn-tap.flash { background: var(--accent); color: #00181f; transform: scale(0.97); }
+#btn-tap { transition: transform .08s ease, background .15s ease; }
 .card-tools { display: flex; align-items: center; gap: 6px; }
 
 /* ---------- Buttons ---------- */
