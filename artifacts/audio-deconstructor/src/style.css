@@ -160,6 +160,50 @@ body {
 .tempo-bars { font-size: 11px; }
 #btn-tap.flash { background: var(--accent); color: #00181f; transform: scale(0.97); }
 #btn-tap { transition: transform .08s ease, background .15s ease; }
+
+/* ---------- Structure strip ---------- */
+.structure-card { display: flex; flex-direction: column; gap: 8px; }
+.structure-strip {
+  display: flex; align-items: stretch;
+  width: 100%; min-height: 56px;
+  border-radius: 6px; overflow: hidden;
+  background: var(--bg-2); border: 1px solid var(--line);
+}
+.structure-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-mute); font-size: 12px; padding: 12px;
+}
+.structure-block {
+  position: relative;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 8px 10px; min-width: 0;
+  cursor: pointer;
+  border-right: 1px solid rgba(0,0,0,0.45);
+  transition: filter .12s ease;
+  overflow: hidden;
+}
+.structure-block:last-child { border-right: none; }
+.structure-block:hover { filter: brightness(1.18); }
+.structure-block .struct-label {
+  font-size: 11px; font-weight: 600;
+  color: #fff; letter-spacing: 0.3px;
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.structure-block .struct-meta {
+  font-size: 10px; color: rgba(255,255,255,0.78);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  margin-top: 2px;
+}
+.structure-block.is-selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.structure-block.is-tiny { padding: 8px 4px; }
+.structure-block.is-tiny .struct-label,
+.structure-block.is-tiny .struct-meta { display: none; }
+.structure-block.is-tiny::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.18), rgba(255,255,255,0));
+}
 .card-tools { display: flex; align-items: center; gap: 6px; }
 
 /* ---------- Buttons ---------- */
@@ -276,7 +320,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------- Center: waveform card ---------- */
 .center { gap: 12px; }
-.waveform-card { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; }
+.waveform-card { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; position: relative; }
 .waveform-wrap {
   position: relative;
   background: linear-gradient(180deg, #0a0f14, #0c1218);

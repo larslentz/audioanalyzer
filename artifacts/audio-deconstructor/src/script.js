@@ -110,6 +110,9 @@ const el = {
   showGrid: q("#show-grid"),
   snapBeat: q("#snap-beat"),
 
+  structureStrip: q("#structure-strip"),
+  structureSummary: q("#structure-summary"),
+
   timeCurrent: q("#time-current"),
   timeTotal: q("#time-total"),
 
@@ -826,6 +829,83 @@ function updateTimeReadout() {
 
 /* ---------------- Markers list / editor ---------------- */
 
+/* ---------------- Structure overview ---------------- */
+
+/**
+ * Render the colored section strip from sorted markers. Each section runs from
+ * one marker to the next (or to the end of the track). Click a section to seek
+ * to its start. Sections too narrow to show text become solid color blocks.
+ */
+function renderStructure() {
+  const strip = el.structureStrip;
+  if (!strip) return;
+  const summary = el.structureSummary;
+  strip.innerHTML = "";
+
+  if (!state.buffer || state.markers.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "structure-empty";
+    empty.textContent = state.buffer
+      ? "Drop a few markers and a structure overview will appear here."
+      : "Load a track and add markers to see its structure.";
+    strip.appendChild(empty);
+    if (summary) summary.textContent = state.buffer ? formatTime(state.buffer.duration) : "—";
+    return;
+  }
+
+  const dur = state.buffer.duration;
+  const sorted = [...state.markers].sort((a, b) => a.time - b.time);
+  const beatLen = state.bpm > 0 ? 60 / state.bpm : null;
+  const stripWidth = strip.clientWidth || 600;
+  const totalBars = beatLen ? (dur / beatLen) / Math.max(1, state.beatsPerBar) : null;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const m = sorted[i];
+    const start = clamp(m.time, 0, dur);
+    const end = i < sorted.length - 1 ? clamp(sorted[i + 1].time, start, dur) : dur;
+    const sectionDur = Math.max(0, end - start);
+    if (sectionDur <= 0) continue;
+    const widthFrac = sectionDur / dur;
+    const block = document.createElement("div");
+    block.className = "structure-block" + (state.selectedMarker === m.id ? " is-selected" : "");
+    block.setAttribute("role", "listitem");
+    block.style.flexBasis = `${widthFrac * 100}%`;
+    block.style.background = m.color;
+
+    if (widthFrac * stripWidth < 36) block.classList.add("is-tiny");
+
+    const label = document.createElement("div");
+    label.className = "struct-label";
+    label.textContent = m.label;
+
+    const meta = document.createElement("div");
+    meta.className = "struct-meta";
+    const secs = sectionDur < 10 ? sectionDur.toFixed(1) : Math.round(sectionDur);
+    if (beatLen) {
+      const bars = sectionDur / beatLen / Math.max(1, state.beatsPerBar);
+      meta.textContent = `${secs}s · ${bars >= 1 ? bars.toFixed(bars >= 10 ? 0 : 1) + " bars" : "<1 bar"}`;
+    } else {
+      meta.textContent = `${secs}s`;
+    }
+
+    block.title = `${m.label} — ${formatTime(start)} → ${formatTime(end)} (${sectionDur.toFixed(2)}s)${beatLen ? ` · ~${(sectionDur / beatLen).toFixed(1)} beats` : ""}`;
+
+    block.appendChild(label);
+    block.appendChild(meta);
+    block.addEventListener("click", () => {
+      seekTo(m.time);
+      setSelectedMarker(m.id);
+    });
+    strip.appendChild(block);
+  }
+
+  if (summary) {
+    summary.textContent = beatLen
+      ? `${formatTime(dur)} · ~${totalBars.toFixed(totalBars >= 10 ? 0 : 1)} bars`
+      : formatTime(dur);
+  }
+}
+
 /* ---------------- Tempo helpers ---------------- */
 
 function setBpm(value, opts = {}) {
@@ -840,6 +920,7 @@ function setBpm(value, opts = {}) {
   if (opts.toast) showToast(state.bpm ? `Tempo: ${state.bpm.toFixed(1)} BPM` : "Tempo cleared", "success");
   drawWaveform();
   drawOverview();
+  renderStructure();
 }
 
 function setBeatOffset(value) {
@@ -854,6 +935,7 @@ function setBeatsPerBar(value) {
   state.beatsPerBar = v;
   el.beatsPerBarInput.value = v;
   drawWaveform();
+  renderStructure();
 }
 
 function tapTempo() {
@@ -973,6 +1055,7 @@ function addMarkerAt(time, category) {
 
 function renderMarkerList() {
   el.markerCount.textContent = String(state.markers.length);
+  renderStructure();
   if (!state.markers.length) {
     el.markersList.innerHTML = `<div class="markers-empty">No markers yet. Drop one with the button on the left or press <kbd>M</kbd> while playing.</div>`;
     return;
