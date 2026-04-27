@@ -292,6 +292,43 @@
             </div>
           </section>
 
+          <section class="card loudness-card">
+            <h2 class="card-title">Loudness <span class="badge subtle">EBU R 128 · heuristic</span></h2>
+            <div class="loudness-status" id="loudness-status">Load a track to compute integrated loudness, range, and peak ratios.</div>
+            <div class="loudness-grid" id="loudness-grid" hidden>
+              <div class="loud-cell" title="Integrated loudness over the whole track (LUFS, gated mean per ITU-R BS.1770)">
+                <div class="loud-label">Integrated · I</div>
+                <div class="loud-val mono" id="loud-i">—</div>
+                <div class="loud-unit">LUFS</div>
+              </div>
+              <div class="loud-cell" title="Maximum short-term loudness over any 3-second window">
+                <div class="loud-label">Short-term max · S<sub>max</sub></div>
+                <div class="loud-val mono" id="loud-smax">—</div>
+                <div class="loud-unit">LUFS</div>
+              </div>
+              <div class="loud-cell" title="True peak — inter-sample peak detected via 4× oversampling">
+                <div class="loud-label">True peak</div>
+                <div class="loud-val mono" id="loud-tp">—</div>
+                <div class="loud-unit">dBTP</div>
+              </div>
+              <div class="loud-cell" title="Loudness range — high vs low percentile spread of short-term loudness (EBU Tech 3342)">
+                <div class="loud-label">Loudness range · LRA</div>
+                <div class="loud-val mono" id="loud-lra">—</div>
+                <div class="loud-unit">LU</div>
+              </div>
+              <div class="loud-cell" title="Peak-to-Short-term ratio — true peak minus S-max (a transient-headroom indicator)">
+                <div class="loud-label">PSR</div>
+                <div class="loud-val mono" id="loud-psr">—</div>
+                <div class="loud-unit">LU</div>
+              </div>
+              <div class="loud-cell" title="Peak-to-Loudness ratio — true peak minus integrated loudness (overall crest)">
+                <div class="loud-label">PLR</div>
+                <div class="loud-val mono" id="loud-plr">—</div>
+                <div class="loud-unit">LU</div>
+              </div>
+            </div>
+          </section>
+
           <section class="card observations-card">
             <h2 class="card-title">Observations <span class="badge subtle">heuristic</span></h2>
             <ul id="observations-list" class="obs-list">

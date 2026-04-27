@@ -454,6 +454,24 @@ select:focus { border-color: var(--accent); }
 .metric-label { font-size: 11px; color: var(--text-dim); }
 .metric-val { font-size: 11px; color: var(--text); text-align: right; }
 
+/* ---------- Loudness card ---------- */
+[hidden] { display: none !important; }
+.loudness-status { font-size: 11px; color: var(--text-mute); line-height: 1.45; }
+.loudness-status.computing { color: var(--accent); }
+.loudness-status.error { color: var(--danger, #ff4f74); }
+.loudness-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.loud-cell {
+  background: var(--bg-1); border: 1px solid var(--line-soft); border-radius: 8px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;
+  cursor: help;
+}
+.loud-cell:hover { border-color: var(--line); }
+.loud-label { font-size: 10px; color: var(--text-mute); text-transform: uppercase; letter-spacing: .04em; }
+.loud-val { font-size: 18px; font-weight: 600; color: var(--text); line-height: 1.1; font-family: var(--font-mono); }
+.loud-val.warn { color: var(--warn, #ffb13d); }
+.loud-val.danger { color: var(--danger, #ff4f74); }
+.loud-unit { font-size: 10px; color: var(--text-mute); font-family: var(--font-mono); }
+
 .meter { height: 6px; background: var(--bg-3); border-radius: 999px; overflow: hidden; }
 .meter-fill {
   height: 100%; width: 0%;

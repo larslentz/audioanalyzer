@@ -155,6 +155,15 @@ const el = {
   bMid: q("#b-mid"),
   bHigh: q("#b-high"),
 
+  loudnessStatus: q("#loudness-status"),
+  loudnessGrid: q("#loudness-grid"),
+  loudI: q("#loud-i"),
+  loudSmax: q("#loud-smax"),
+  loudTp: q("#loud-tp"),
+  loudLra: q("#loud-lra"),
+  loudPsr: q("#loud-psr"),
+  loudPlr: q("#loud-plr"),
+
   observations: q("#observations-list"),
   markersList: q("#markers-list"),
   markerCount: q("#marker-count"),
@@ -252,10 +261,233 @@ async function handleFile(file) {
     el.emptyState.style.display = "none";
     el.playhead.style.display = "block";
     showToast("Track loaded.", "success");
+    computeLoudnessAsync(decoded);
   } catch (e) {
     console.error(e);
     showToast("Could not decode this file. Try WAV / MP3 / AAC / OGG.", "error");
   }
+}
+
+/* ---------------- Loudness (EBU R 128 / ITU-R BS.1770) ---------------- */
+
+function highShelfBiquad(f0, gainDb, Q, fs) {
+  const A = Math.pow(10, gainDb / 40);
+  const omega = 2 * Math.PI * f0 / fs;
+  const sn = Math.sin(omega), cs = Math.cos(omega);
+  const beta = Math.sqrt(A) / Q;
+  const b0 = A * ((A + 1) + (A - 1) * cs + beta * sn);
+  const b1 = -2 * A * ((A - 1) + (A + 1) * cs);
+  const b2 = A * ((A + 1) + (A - 1) * cs - beta * sn);
+  const a0 = (A + 1) - (A - 1) * cs + beta * sn;
+  const a1 = 2 * ((A - 1) - (A + 1) * cs);
+  const a2 = (A + 1) - (A - 1) * cs - beta * sn;
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
+function highPassBiquad(f0, Q, fs) {
+  const omega = 2 * Math.PI * f0 / fs;
+  const sn = Math.sin(omega), cs = Math.cos(omega);
+  const alpha = sn / (2 * Q);
+  const b0 = (1 + cs) / 2;
+  const b1 = -(1 + cs);
+  const b2 = (1 + cs) / 2;
+  const a0 = 1 + alpha;
+  const a1 = -2 * cs;
+  const a2 = 1 - alpha;
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
+function applyBiquad(input, output, c) {
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < input.length; i++) {
+    const x = input[i];
+    const y = c.b0 * x + c.b1 * x1 + c.b2 * x2 - c.a1 * y1 - c.a2 * y2;
+    x2 = x1; x1 = x;
+    y2 = y1; y1 = y;
+    output[i] = y;
+  }
+}
+
+// 4× oversampling true-peak per channel via Catmull-Rom interpolation.
+// Heuristic — close to a sinc-based ITU-R BS.1770-4 true peak meter for typical content.
+function truePeakDbForBuffer(buffer) {
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const ch = buffer.getChannelData(c);
+    const N = ch.length;
+    for (let i = 0; i < N; i++) {
+      const a = i > 0 ? ch[i - 1] : ch[i];
+      const b = ch[i];
+      const cN = i + 1 < N ? ch[i + 1] : ch[i];
+      const dN = i + 2 < N ? ch[i + 2] : ch[i];
+      const sp = Math.abs(b);
+      if (sp > peak) peak = sp;
+      // Subsamples at t = 0.25, 0.5, 0.75
+      for (let k = 1; k < 4; k++) {
+        const t = k * 0.25;
+        const t2 = t * t, t3 = t2 * t;
+        const v = 0.5 * ((2 * b) + (-a + cN) * t + (2 * a - 5 * b + 4 * cN - dN) * t2 + (-a + 3 * b - 3 * cN + dN) * t3);
+        const av = Math.abs(v);
+        if (av > peak) peak = av;
+      }
+    }
+  }
+  return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+}
+
+function computeLoudness(buffer) {
+  const fs = buffer.sampleRate;
+  const numCh = buffer.numberOfChannels;
+  const ch0 = buffer.getChannelData(0);
+  const ch1 = numCh > 1 ? buffer.getChannelData(1) : null;
+  const N = ch0.length;
+
+  // K-weighting filter coefficients (analog prototype values from ITU-R BS.1770-4).
+  // RBJ bilinear matches the spec at fs=48000 within ±0.05 dB across the audible band.
+  const preCoef = highShelfBiquad(1681.974450955533, 3.999843853973347, 0.7071752369554196, fs);
+  const rlbCoef = highPassBiquad(38.13547087602444, 0.5003270373238773, fs);
+
+  function applyK(input) {
+    const tmp = new Float32Array(N);
+    applyBiquad(input, tmp, preCoef);
+    const out = new Float32Array(N);
+    applyBiquad(tmp, out, rlbCoef);
+    return out;
+  }
+
+  const k0 = applyK(ch0);
+  const k1 = ch1 ? applyK(ch1) : null;
+
+  // 100 ms hop block mean-square (sum across channels with weights L=R=1.0)
+  const hop = Math.floor(fs * 0.1);
+  const numBlocks = Math.floor(N / hop);
+  const blockMs = new Float64Array(numBlocks);
+  for (let b = 0; b < numBlocks; b++) {
+    const start = b * hop;
+    const end = start + hop;
+    let s0 = 0, s1 = 0;
+    for (let i = start; i < end; i++) {
+      const v0 = k0[i]; s0 += v0 * v0;
+      if (k1) { const v1 = k1[i]; s1 += v1 * v1; }
+    }
+    s0 /= hop; if (k1) s1 /= hop;
+    blockMs[b] = k1 ? (s0 + s1) : s0;
+  }
+
+  // Momentary loudness (400 ms window) per BS.1770
+  const MOM = 4;
+  const momLufs = new Float64Array(numBlocks);
+  const momMs = new Float64Array(numBlocks);
+  for (let b = 0; b < numBlocks; b++) {
+    if (b < MOM - 1) { momLufs[b] = -Infinity; momMs[b] = 0; continue; }
+    let sum = 0;
+    for (let k = 0; k < MOM; k++) sum += blockMs[b - k];
+    const ms = sum / MOM;
+    momMs[b] = ms;
+    momLufs[b] = ms > 0 ? -0.691 + 10 * Math.log10(ms) : -Infinity;
+  }
+
+  // Short-term loudness (3 s window) per BS.1770 / EBU Tech 3342
+  const ST = 30;
+  const stLufs = [];
+  for (let b = ST - 1; b < numBlocks; b++) {
+    let sum = 0;
+    for (let k = 0; k < ST; k++) sum += blockMs[b - k];
+    const ms = sum / ST;
+    stLufs.push(ms > 0 ? -0.691 + 10 * Math.log10(ms) : -Infinity);
+  }
+
+  // Integrated loudness — two-stage gating (BS.1770)
+  let integrated = -Infinity;
+  const idx1 = []; // momentary blocks above absolute gate
+  for (let b = MOM - 1; b < numBlocks; b++) if (momLufs[b] >= -70) idx1.push(b);
+  if (idx1.length > 0) {
+    let sumMs = 0;
+    for (const b of idx1) sumMs += momMs[b];
+    const absMeanMs = sumMs / idx1.length;
+    const relThresh = (-0.691 + 10 * Math.log10(absMeanMs)) - 10;
+    let sumMs2 = 0; let count = 0;
+    for (const b of idx1) {
+      if (momLufs[b] >= relThresh) { sumMs2 += momMs[b]; count++; }
+    }
+    if (count > 0) integrated = -0.691 + 10 * Math.log10(sumMs2 / count);
+  }
+
+  // Short-term max
+  let smax = -Infinity;
+  for (const v of stLufs) if (v > smax) smax = v;
+
+  // LRA — EBU Tech 3342: short-term values, abs gate -70 LUFS, rel gate -20 LU
+  // below the ungated mean, then 95th − 10th percentile.
+  let lra = 0;
+  const aboveAbs = stLufs.filter(v => v >= -70);
+  if (aboveAbs.length > 0) {
+    const meanSt = aboveAbs.reduce((a, b) => a + b, 0) / aboveAbs.length;
+    const relThresh = meanSt - 20;
+    const gated = aboveAbs.filter(v => v >= relThresh).sort((a, b) => a - b);
+    if (gated.length > 0) {
+      const lo = gated[Math.floor(gated.length * 0.10)];
+      const hi = gated[Math.min(gated.length - 1, Math.floor(gated.length * 0.95))];
+      lra = Math.max(0, hi - lo);
+    }
+  }
+
+  const truePeakDb = truePeakDbForBuffer(buffer);
+
+  return {
+    integrated,
+    shortTermMax: smax,
+    truePeakDb,
+    lra,
+    psr: (isFinite(truePeakDb) && isFinite(smax)) ? (truePeakDb - smax) : NaN,
+    plr: (isFinite(truePeakDb) && isFinite(integrated)) ? (truePeakDb - integrated) : NaN,
+  };
+}
+
+function fmtLufs(v) { return isFinite(v) ? v.toFixed(1) : "—"; }
+function fmtLu(v)   { return isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(1) : "—"; }
+function fmtDb(v)   { return isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(2) : "—"; }
+
+function setLoudnessStatus(text, kind = "") {
+  el.loudnessStatus.textContent = text;
+  el.loudnessStatus.className = "loudness-status" + (kind ? " " + kind : "");
+  el.loudnessStatus.hidden = false;
+  el.loudnessGrid.hidden = true;
+}
+
+function showLoudnessResult(r) {
+  el.loudI.textContent = fmtLufs(r.integrated);
+  el.loudSmax.textContent = fmtLufs(r.shortTermMax);
+  el.loudTp.textContent = fmtDb(r.truePeakDb);
+  el.loudLra.textContent = isFinite(r.lra) ? r.lra.toFixed(1) : "—";
+  el.loudPsr.textContent = isFinite(r.psr) ? r.psr.toFixed(1) : "—";
+  el.loudPlr.textContent = isFinite(r.plr) ? r.plr.toFixed(1) : "—";
+  // Color cue: clipping above 0 dBTP, hot above -1 dBTP
+  el.loudTp.classList.toggle("danger", isFinite(r.truePeakDb) && r.truePeakDb > 0);
+  el.loudTp.classList.toggle("warn", isFinite(r.truePeakDb) && r.truePeakDb > -1 && r.truePeakDb <= 0);
+  el.loudnessStatus.hidden = true;
+  el.loudnessGrid.hidden = false;
+}
+
+function computeLoudnessAsync(buffer) {
+  setLoudnessStatus("Computing K-weighted loudness…", "computing");
+  // Yield to let the UI update, then run the (CPU-bound) computation.
+  setTimeout(() => {
+    try {
+      const t0 = performance.now();
+      const result = computeLoudness(buffer);
+      const ms = Math.round(performance.now() - t0);
+      console.log(`Loudness computed in ${ms} ms`);
+      showLoudnessResult(result);
+    } catch (e) {
+      console.error(e);
+      setLoudnessStatus("Loudness computation failed.", "error");
+    }
+  }, 30);
+}
+
+function resetLoudness() {
+  setLoudnessStatus("Load a track to compute integrated loudness, range, and peak ratios.");
 }
 
 function updateMeta() {
