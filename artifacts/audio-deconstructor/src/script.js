@@ -643,11 +643,13 @@ function fitCanvas(canvas) {
   const rect = canvas.getBoundingClientRect();
   const w = Math.max(1, Math.floor(rect.width * dpr));
   const h = Math.max(1, Math.floor(rect.height * dpr));
+  let resized = false;
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
+    resized = true;
   }
-  return { dpr, w, h, cssW: rect.width, cssH: rect.height };
+  return { dpr, w, h, cssW: rect.width, cssH: rect.height, resized };
 }
 
 /* ---------------- Waveform overview ---------------- */
@@ -1595,28 +1597,29 @@ function spectroRGB(v, theme) {
 
 function drawSpectrogram() {
   const c = el.spectrogramCanvas;
-  // willReadFrequently avoids GPU→CPU readback stalls on Chromium
-  const ctx = c.getContext("2d", { willReadFrequently: true });
-  const { dpr, w, h } = fitCanvas(c);
+  const ctx = c.getContext("2d");
+  const { dpr, w, h, resized } = fitCanvas(c);
 
-  if (!state.spectrogramCleared || c._lastW !== w || c._lastH !== h) {
+  // Only clear when the canvas was actually resized (pixel buffer reallocated)
+  // or on the very first draw. The old c._lastW check caused flicker because
+  // getBoundingClientRect() can jitter by a subpixel, producing a new floor()
+  // value every other frame and clearing the accumulated history each time.
+  if (!state.spectrogramCleared || resized) {
     ctx.fillStyle = "#0a1117";
     ctx.fillRect(0, 0, w, h);
     state.spectrogramCleared = true;
-    c._lastW = w;
-    c._lastH = h;
   }
   if (!state._freqArr || !state.isPlaying) return;
 
-  // Shift the existing image one column to the left.
   const colW = Math.max(1, Math.floor(2 * dpr));
-  if (w > colW) {
-    const existing = ctx.getImageData(colW, 0, w - colW, h);
-    ctx.putImageData(existing, 0, 0);
-  }
 
-  // Write the new rightmost column directly into an ImageData buffer.
-  // This avoids one fillStyle string parse + fillRect call per row.
+  // Scroll existing content left by colW pixels using self-drawImage.
+  // The HTML spec requires the browser to use a snapshot of the canvas
+  // as the source, so this is safe and avoids a CPU readback entirely.
+  ctx.drawImage(c, -colW, 0);
+
+  // Write the new rightmost column directly via ImageData — one putImageData
+  // call per frame instead of one fillStyle + fillRect per row.
   const N    = state._freqArr.length;
   const col  = ctx.createImageData(colW, h);
   const data = col.data;
