@@ -1563,64 +1563,77 @@ function drawSpectrum() {
   }
 }
 
-function colorForSpectrogram(v, theme) {
-  // v in 0..1
+// Returns [r, g, b] as integers 0-255 — avoids string allocation per pixel.
+function spectroRGB(v, theme) {
   const t = clamp(v, 0, 1);
   switch (theme) {
-    case "magma": {
-      const r = Math.round(255 * Math.min(1, t * 1.8));
-      const g = Math.round(80 * t * t);
-      const b = Math.round(160 * (1 - t));
-      return `rgb(${r},${g},${b})`;
-    }
-    case "ice": {
-      const r = Math.round(40 * t);
-      const g = Math.round(140 * Math.pow(t, 0.7));
-      const b = Math.round(255 * Math.min(1, 0.4 + t));
-      return `rgb(${r},${g},${b})`;
-    }
+    case "magma":
+      return [
+        (255 * Math.min(1, t * 1.8)) | 0,
+        (80  * t * t) | 0,
+        (160 * (1 - t)) | 0,
+      ];
+    case "ice":
+      return [
+        (40  * t) | 0,
+        (140 * Math.pow(t, 0.7)) | 0,
+        (255 * Math.min(1, 0.4 + t)) | 0,
+      ];
     case "mono": {
-      const x = Math.round(255 * Math.pow(t, 0.7));
-      return `rgb(${x},${x},${x})`;
+      const x = (255 * Math.pow(t, 0.7)) | 0;
+      return [x, x, x];
     }
     case "aurora":
-    default: {
-      // green -> teal -> magenta
-      const r = Math.round(255 * Math.pow(t, 2.2));
-      const g = Math.round(220 * Math.pow(t, 0.5));
-      const b = Math.round(180 * t);
-      return `rgb(${r},${g},${b})`;
-    }
+    default:
+      return [
+        (255 * Math.pow(t, 2.2)) | 0,
+        (220 * Math.pow(t, 0.5)) | 0,
+        (180 * t) | 0,
+      ];
   }
 }
 
 function drawSpectrogram() {
   const c = el.spectrogramCanvas;
-  const ctx = c.getContext("2d");
+  // willReadFrequently avoids GPU→CPU readback stalls on Chromium
+  const ctx = c.getContext("2d", { willReadFrequently: true });
   const { dpr, w, h } = fitCanvas(c);
+
   if (!state.spectrogramCleared || c._lastW !== w || c._lastH !== h) {
-    ctx.fillStyle = "#0a1117"; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#0a1117";
+    ctx.fillRect(0, 0, w, h);
     state.spectrogramCleared = true;
-    c._lastW = w; c._lastH = h;
+    c._lastW = w;
+    c._lastH = h;
   }
   if (!state._freqArr || !state.isPlaying) return;
 
-  // Scroll image left by 1px
+  // Shift the existing image one column to the left.
   const colW = Math.max(1, Math.floor(2 * dpr));
-  const img = ctx.getImageData(colW, 0, w - colW, h);
-  ctx.putImageData(img, 0, 0);
-  ctx.fillStyle = "#0a1117";
-  ctx.fillRect(w - colW, 0, colW, h);
-
-  const N = state._freqArr.length;
-  for (let y = 0; y < h; y++) {
-    // log mapping freq bin
-    const frac = 1 - y / h;
-    const idx = Math.max(1, Math.min(N - 1, Math.floor(Math.pow(frac, 2.4) * N)));
-    const v = state._freqArr[idx] / 255;
-    ctx.fillStyle = colorForSpectrogram(v, state.specTheme);
-    ctx.fillRect(w - colW, y, colW, 1);
+  if (w > colW) {
+    const existing = ctx.getImageData(colW, 0, w - colW, h);
+    ctx.putImageData(existing, 0, 0);
   }
+
+  // Write the new rightmost column directly into an ImageData buffer.
+  // This avoids one fillStyle string parse + fillRect call per row.
+  const N    = state._freqArr.length;
+  const col  = ctx.createImageData(colW, h);
+  const data = col.data;
+  for (let y = 0; y < h; y++) {
+    const frac = 1 - y / h;
+    const idx  = Math.max(1, Math.min(N - 1, (Math.pow(frac, 2.4) * N) | 0));
+    const v    = state._freqArr[idx] / 255;
+    const [r, g, b] = spectroRGB(v, state.specTheme);
+    for (let cx = 0; cx < colW; cx++) {
+      const i = (y * colW + cx) * 4;
+      data[i]     = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(col, w - colW, 0);
 }
 
 function drawStereo() {
