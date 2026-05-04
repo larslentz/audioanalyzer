@@ -1,5 +1,5 @@
 /* =========================================================
-   Audio Deconstructor — dark electronic-music-tool aesthetic
+   LL Audio Analyzer — dark electronic-music-tool aesthetic
    ========================================================= */
 
 :root {
@@ -573,7 +573,7 @@ select:focus { border-color: var(--accent); }
 }
 @media (max-width: 900px) {
   body::before {
-    content: "Audio Deconstructor is optimized for desktop / laptop. Please use a wider window.";
+    content: "LL Audio Analyzer is optimized for desktop / laptop. Please use a wider window.";
     position: fixed; inset: 0; display: grid; place-items: center;
     background: var(--bg-0); color: var(--text-dim); padding: 24px; text-align: center;
     z-index: 9999; font-size: 14px;

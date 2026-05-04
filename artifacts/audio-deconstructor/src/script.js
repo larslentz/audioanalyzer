@@ -1,5 +1,5 @@
 /* =========================================================
-   Audio Deconstructor — vanilla JS
+   LL Audio Analyzer — vanilla JS
    - Web Audio API: AudioContext + AudioBufferSourceNode + AnalyserNode
    - Canvas: waveform overview, scrollable waveform, spectrum,
      spectrogram, stereo lissajous, energy history.
@@ -1738,7 +1738,7 @@ function drawEnergyHistory() {
 
 function exportJson() {
   const session = {
-    app: "Audio Deconstructor",
+    app: "LL Audio Analyzer",
     version: 1,
     file: state.fileName || null,
     duration: state.buffer ? state.buffer.duration : null,
