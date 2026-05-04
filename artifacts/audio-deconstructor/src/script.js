@@ -178,6 +178,7 @@ const el = {
 
   btnExportJson: q("#btn-export-json"),
   btnExportCsv: q("#btn-export-csv"),
+  btnExportObs: q("#btn-export-obs"),
   btnImportJson: q("#btn-import-json"),
   toast: q("#toast"),
 };
@@ -1752,10 +1753,24 @@ function exportJson() {
     markers: state.markers.map(m => ({
       time: m.time, label: m.label, category: m.category, color: m.color, notes: m.notes
     })),
+    observations: [...state.observations].reverse().map(o => ({
+      time: o.t, timeFormatted: formatTime(o.t), text: o.text
+    })),
     exportedAt: new Date().toISOString()
   };
   downloadBlob(JSON.stringify(session, null, 2), `${(state.fileName || "session").replace(/\.[^.]+$/, "")}.deconstructor.json`, "application/json");
   showToast("Exported session JSON.", "success");
+}
+
+function exportObservations() {
+  if (!state.observations.length) { showToast("No observations to export yet — play the track first.", "error"); return; }
+  const stem = (state.fileName || "observations").replace(/\.[^.]+$/, "");
+  const header = "time_seconds,time_formatted,observation\n";
+  const rows = [...state.observations].reverse().map(o =>
+    [o.t.toFixed(3), formatTime(o.t), csvCell(o.text)].join(",")
+  ).join("\n");
+  downloadBlob(header + rows + "\n", `${stem}.observations.csv`, "text/csv");
+  showToast("Exported observations CSV.", "success");
 }
 function exportCsv() {
   if (!state.markers.length) { showToast("No markers to export.", "error"); return; }
@@ -2068,6 +2083,7 @@ function bindEvents() {
   // Export / import
   el.btnExportJson.addEventListener("click", exportJson);
   el.btnExportCsv.addEventListener("click", exportCsv);
+  el.btnExportObs.addEventListener("click", exportObservations);
   el.btnImportJson.addEventListener("click", () => el.fileImportJson.click());
   el.fileImportJson.addEventListener("change", (e) => {
     const f = e.target.files?.[0];
