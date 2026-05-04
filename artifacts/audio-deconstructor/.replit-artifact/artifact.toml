@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Audio Deconstructor"
+title = "LL Audio Analyzer"
 version = "1.0.0"
 id = "artifacts/audio-deconstructor"
 router = "path"
