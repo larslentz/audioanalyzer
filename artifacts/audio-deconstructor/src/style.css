@@ -304,6 +304,22 @@ input[type="range"]::-moz-range-thumb {
 }
 .loop-readout strong { font-family: var(--font-mono); color: var(--text); font-weight: 500; }
 .loop-preview-row { display: flex; gap: 6px; margin-top: 8px; }
+.loop-speed-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.loop-speed-label { font-size: 11px; color: var(--text-mute); flex-shrink: 0; }
+.loop-speed-slider { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.loop-speed-val {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text);
+  background: transparent; border: 1px solid var(--line-soft); border-radius: 4px;
+  padding: 2px 6px; cursor: pointer; flex-shrink: 0; min-width: 44px;
+  text-align: center; transition: border-color .15s;
+}
+.loop-speed-val:hover { border-color: var(--accent); color: var(--accent); }
+.saved-loop-speed {
+  display: inline-block; font-size: 9px; font-family: var(--font-mono);
+  background: rgba(255,180,0,.13); color: #e8b04a;
+  border-radius: 3px; padding: 1px 4px; margin-left: 4px; vertical-align: middle;
+  letter-spacing: .03em;
+}
 .saved-loop-rev {
   display: inline-block; font-size: 9px; font-family: var(--font-mono);
   background: rgba(0,179,255,.15); color: var(--accent-2);

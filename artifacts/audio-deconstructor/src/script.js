@@ -60,6 +60,7 @@ const state = {
   savedLoops: [],          // {id, name, in, out, reversed?}
   loopPreviewSource: null, // AudioBufferSourceNode for isolated loop preview
   loopPreviewReversed: false,
+  loopPreviewSpeed: 1.0,   // independent speed for loop preview / save
   observations: [],        // recent observation messages
   lastObsTime: -10,
   smoothedRms: 0,
@@ -108,6 +109,8 @@ const el = {
   btnLoopSaveRev: q("#btn-loop-save-rev"),
   btnLoopPreview: q("#btn-loop-preview"),
   btnLoopPreviewRev: q("#btn-loop-preview-rev"),
+  loopSpeedSlider: q("#loop-preview-speed"),
+  loopSpeedVal: q("#loop-speed-val"),
   savedLoopsList: q("#saved-loops-list"),
 
   btnTap: q("#btn-tap"),
@@ -1063,9 +1066,11 @@ function renderSavedLoops() {
   el.savedLoopsList.innerHTML = state.savedLoops.map((lp, i) => {
     const dur = (lp.out - lp.in).toFixed(2);
     const revBadge = lp.reversed ? `<span class="saved-loop-rev">rev</span>` : "";
+    const spd = lp.speed ?? 1.0;
+    const speedBadge = Math.abs(spd - 1.0) > 0.01 ? `<span class="saved-loop-speed">${spd.toFixed(2)}×</span>` : "";
     return `<div class="saved-loop-item" data-idx="${i}">
       <div class="saved-loop-info">
-        <span class="saved-loop-name">${escapeHtml(lp.name)}${revBadge}</span>
+        <span class="saved-loop-name">${escapeHtml(lp.name)}${revBadge}${speedBadge}</span>
         <span class="saved-loop-times">${formatTime(lp.in)} – ${formatTime(lp.out)}<em>${dur}s</em></span>
       </div>
       <div class="saved-loop-actions">
@@ -1122,9 +1127,48 @@ function encodeWav(buffer, startSec, endSec, reverse = false) {
   return new Blob([ab], { type: "audio/wav" });
 }
 
-function exportLoopAsWav(lp) {
+async function renderRegionAtSpeed(startSec, endSec, reversed, speed) {
+  const buf = state.buffer;
+  const sr = buf.sampleRate;
+  const numCh = buf.numberOfChannels;
+  let sourceBuf;
+  if (reversed) {
+    sourceBuf = makeReversedBuffer(startSec, endSec);
+  } else {
+    const s0 = Math.max(0, Math.round(startSec * sr));
+    const s1 = Math.min(buf.length, Math.round(endSec * sr));
+    const n = Math.max(1, s1 - s0);
+    sourceBuf = state.audioCtx.createBuffer(numCh, n, sr);
+    for (let c = 0; c < numCh; c++) {
+      const src = buf.getChannelData(c);
+      const dst = sourceBuf.getChannelData(c);
+      for (let i = 0; i < n; i++) dst[i] = src[s0 + i];
+    }
+  }
+  const outLength = Math.ceil((sourceBuf.duration / speed) * sr);
+  const offline = new OfflineAudioContext(numCh, outLength, sr);
+  const src = offline.createBufferSource();
+  src.buffer = sourceBuf;
+  src.playbackRate.value = speed;
+  src.connect(offline.destination);
+  src.start(0);
+  return offline.startRendering();
+}
+
+async function exportLoopAsWav(lp) {
   if (!state.buffer) { showToast("No audio loaded.", "error"); return; }
-  const blob = encodeWav(state.buffer, lp.in, lp.out, lp.reversed === true);
+  const speed = lp.speed ?? 1.0;
+  const reversed = lp.reversed === true;
+  const a = Math.min(lp.in, lp.out);
+  const b = Math.max(lp.in, lp.out);
+  let blob;
+  if (Math.abs(speed - 1.0) < 0.001) {
+    blob = encodeWav(state.buffer, a, b, reversed);
+  } else {
+    showToast("Rendering at speed…");
+    const rendered = await renderRegionAtSpeed(a, b, reversed, speed);
+    blob = encodeWav(rendered, 0, rendered.duration);
+  }
   const stem = (state.fileName || "loop").replace(/\.[^.]+$/, "");
   const safeName = lp.name.replace(/[^a-z0-9_\-]/gi, "_") || "loop";
   downloadBlob(blob, `${stem}.${safeName}.wav`, "audio/wav");
@@ -1180,7 +1224,7 @@ function playLoopPreview(reversed) {
     src.loopEnd = b;
     src.start(0, a);
   }
-  src.playbackRate.value = state.rate;
+  src.playbackRate.value = state.loopPreviewSpeed;
   src.connect(state.gainNode);
   state.loopPreviewSource = src;
   state.loopPreviewReversed = reversed;
@@ -1907,7 +1951,7 @@ function exportJson() {
     sampleRate: state.buffer ? state.buffer.sampleRate : null,
     channels: state.buffer ? state.buffer.numberOfChannels : null,
     loop: state.loopIn != null && state.loopOut != null ? { in: state.loopIn, out: state.loopOut } : null,
-    savedLoops: state.savedLoops.map(lp => ({ name: lp.name, in: lp.in, out: lp.out, reversed: lp.reversed || false })),
+    savedLoops: state.savedLoops.map(lp => ({ name: lp.name, in: lp.in, out: lp.out, reversed: lp.reversed || false, speed: lp.speed ?? 1.0 })),
     tempo: state.bpm ? {
       bpm: state.bpm,
       offset: state.beatOffset,
@@ -1982,7 +2026,7 @@ async function importJson(file) {
     if (Array.isArray(parsed.savedLoops)) {
       state.savedLoops = parsed.savedLoops
         .filter(lp => typeof lp.in === "number" && typeof lp.out === "number")
-        .map(lp => ({ id: uid(), name: String(lp.name || "Loop"), in: lp.in, out: lp.out, reversed: lp.reversed === true }));
+        .map(lp => ({ id: uid(), name: String(lp.name || "Loop"), in: lp.in, out: lp.out, reversed: lp.reversed === true, speed: typeof lp.speed === "number" ? lp.speed : 1.0 }));
     }
     if (parsed.tempo && typeof parsed.tempo.bpm === "number") {
       setBpm(parsed.tempo.bpm);
@@ -2082,6 +2126,17 @@ function bindEvents() {
   });
   el.btnLoopPreview.addEventListener("click", () => playLoopPreview(false));
   el.btnLoopPreviewRev.addEventListener("click", () => playLoopPreview(true));
+  el.loopSpeedSlider.addEventListener("input", () => {
+    state.loopPreviewSpeed = parseFloat(el.loopSpeedSlider.value);
+    el.loopSpeedVal.textContent = state.loopPreviewSpeed.toFixed(2) + "×";
+    if (state.loopPreviewSource) state.loopPreviewSource.playbackRate.value = state.loopPreviewSpeed;
+  });
+  el.loopSpeedVal.addEventListener("click", () => {
+    state.loopPreviewSpeed = 1.0;
+    el.loopSpeedSlider.value = "1";
+    el.loopSpeedVal.textContent = "1.00×";
+    if (state.loopPreviewSource) state.loopPreviewSource.playbackRate.value = 1.0;
+  });
   el.btnLoopSave.addEventListener("click", () => {
     if (!state.buffer) { showToast("Load audio first.", "error"); return; }
     if (state.loopIn == null || state.loopOut == null) { showToast("Set In and Out points first.", "error"); return; }
@@ -2089,7 +2144,7 @@ function bindEvents() {
     const b = Math.max(state.loopIn, state.loopOut);
     if (b - a < 0.01) { showToast("Loop region too short.", "error"); return; }
     const name = el.loopName.value.trim() || `Loop ${state.savedLoops.length + 1}`;
-    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: false });
+    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: false, speed: state.loopPreviewSpeed });
     el.loopName.value = "";
     renderSavedLoops();
     showToast(`Saved "${name}".`, "success");
@@ -2102,7 +2157,7 @@ function bindEvents() {
     if (b - a < 0.01) { showToast("Loop region too short.", "error"); return; }
     const base = el.loopName.value.trim() || `Loop ${state.savedLoops.length + 1}`;
     const name = base.endsWith("(rev)") ? base : `${base} (rev)`;
-    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: true });
+    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: true, speed: state.loopPreviewSpeed });
     el.loopName.value = "";
     renderSavedLoops();
     showToast(`Saved reversed "${name}".`, "success");
