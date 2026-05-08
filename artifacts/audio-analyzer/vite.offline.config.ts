@@ -13,6 +13,15 @@ export default defineConfig({
           .replace(/<link[^>]*fonts\.gstatic\.com[^>]*>\s*/g, "");
       },
     },
+    {
+      name: "remove-module-type",
+      enforce: "post" as const,
+      transformIndexHtml(html: string) {
+        // Strip type="module" so the file works when opened from file://
+        // The bundle is already fully inlined with no dynamic imports
+        return html.replace(/<script type="module"/g, "<script");
+      },
+    },
   ],
   build: {
     outDir: "dist-offline",
@@ -22,6 +31,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         inlineDynamicImports: true,
+        format: "iife",
       },
     },
   },
