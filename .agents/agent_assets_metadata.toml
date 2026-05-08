@@ -6,3 +6,9 @@ id = "aw0gp22QLitP1kMMkOhlq"
 uri = "file://artifacts/audio-deconstructor/ll-audio-analyzer-offline.zip"
 type = "unspecified"
 title = "LL Audio Analyzer — offline build"
+
+[[outputs]]
+id = "frnXdoe8RJ1-RmwsLIMwz"
+uri = "file://artifacts/audio-analyzer/ll-audio-analyzer-offline.zip"
+type = "unspecified"
+title = "LL Audio Analyzer — offline build"
