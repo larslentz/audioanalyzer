@@ -19,7 +19,7 @@ run = "pnpm --filter @workspace/audio-deconstructor run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/audio-deconstructor", "run", "build" ]
-publicDir = "artifacts/audio-deconstructor/dist/public"
+publicDir = "artifacts/audio-analyzer/dist/public"
 serve = "static"
 
 [[services.production.rewrites]]
