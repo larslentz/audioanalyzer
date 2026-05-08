@@ -303,6 +303,13 @@ input[type="range"]::-moz-range-thumb {
   padding: 6px 8px; margin-top: 8px; font-size: 11px; color: var(--text-mute);
 }
 .loop-readout strong { font-family: var(--font-mono); color: var(--text); font-weight: 500; }
+.loop-preview-row { display: flex; gap: 6px; margin-top: 8px; }
+.saved-loop-rev {
+  display: inline-block; font-size: 9px; font-family: var(--font-mono);
+  background: rgba(0,179,255,.15); color: var(--accent-2);
+  border-radius: 3px; padding: 1px 4px; margin-left: 5px; vertical-align: middle;
+  letter-spacing: .03em;
+}
 .loop-save-row {
   display: flex; gap: 6px; margin-top: 10px; align-items: center;
 }

@@ -57,7 +57,9 @@ const state = {
   snapToBeat: false,
   _tapTimes: [],             // recent tap timestamps (ctx-time seconds)
   energyHistory: [],       // recent rms samples (for energy view)
-  savedLoops: [],          // {id, name, in, out}
+  savedLoops: [],          // {id, name, in, out, reversed?}
+  loopPreviewSource: null, // AudioBufferSourceNode for isolated loop preview
+  loopPreviewReversed: false,
   observations: [],        // recent observation messages
   lastObsTime: -10,
   smoothedRms: 0,
@@ -103,6 +105,9 @@ const el = {
   snapZero: q("#snap-zero"),
   loopName: q("#loop-name"),
   btnLoopSave: q("#btn-loop-save"),
+  btnLoopSaveRev: q("#btn-loop-save-rev"),
+  btnLoopPreview: q("#btn-loop-preview"),
+  btnLoopPreviewRev: q("#btn-loop-preview-rev"),
   savedLoopsList: q("#saved-loops-list"),
 
   btnTap: q("#btn-tap"),
@@ -250,6 +255,7 @@ async function handleFile(file) {
     state.loopIn = null;
     state.loopOut = null;
     state.savedLoops = [];
+    stopLoopPreview();
     state.markers = [];
     state.observations = [];
     state.energyHistory = [];
@@ -1056,14 +1062,15 @@ function renderSavedLoops() {
   if (hint) hint.style.display = "none";
   el.savedLoopsList.innerHTML = state.savedLoops.map((lp, i) => {
     const dur = (lp.out - lp.in).toFixed(2);
+    const revBadge = lp.reversed ? `<span class="saved-loop-rev">rev</span>` : "";
     return `<div class="saved-loop-item" data-idx="${i}">
       <div class="saved-loop-info">
-        <span class="saved-loop-name">${escapeHtml(lp.name)}</span>
+        <span class="saved-loop-name">${escapeHtml(lp.name)}${revBadge}</span>
         <span class="saved-loop-times">${formatTime(lp.in)} – ${formatTime(lp.out)}<em>${dur}s</em></span>
       </div>
       <div class="saved-loop-actions">
         <button class="btn small ghost" data-action="load" data-idx="${i}" title="Load this region into the loop points">Load</button>
-        <button class="btn small ghost" data-action="export" data-idx="${i}" title="Export loop as 32-bit float WAV">WAV</button>
+        <button class="btn small ghost" data-action="export" data-idx="${i}" title="Export as 32-bit float WAV">WAV</button>
         <button class="btn icon ghost danger" data-action="delete" data-idx="${i}" title="Delete">
           <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
@@ -1078,7 +1085,7 @@ function writeWavStr(view, offset, str) {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
 }
 
-function encodeWav(buffer, startSec, endSec) {
+function encodeWav(buffer, startSec, endSec, reverse = false) {
   const sr = buffer.sampleRate;
   const numCh = buffer.numberOfChannels;
   const s0 = Math.max(0, Math.round(startSec * sr));
@@ -1103,19 +1110,94 @@ function encodeWav(buffer, startSec, endSec) {
   const chs = [];
   for (let c = 0; c < numCh; c++) chs.push(buffer.getChannelData(c));
   let off = 44;
-  for (let i = s0; i < s1; i++) {
-    for (let c = 0; c < numCh; c++) { v.setFloat32(off, chs[c][i], true); off += 4; }
+  if (reverse) {
+    for (let i = s1 - 1; i >= s0; i--) {
+      for (let c = 0; c < numCh; c++) { v.setFloat32(off, chs[c][i], true); off += 4; }
+    }
+  } else {
+    for (let i = s0; i < s1; i++) {
+      for (let c = 0; c < numCh; c++) { v.setFloat32(off, chs[c][i], true); off += 4; }
+    }
   }
   return new Blob([ab], { type: "audio/wav" });
 }
 
 function exportLoopAsWav(lp) {
   if (!state.buffer) { showToast("No audio loaded.", "error"); return; }
-  const blob = encodeWav(state.buffer, lp.in, lp.out);
+  const blob = encodeWav(state.buffer, lp.in, lp.out, lp.reversed === true);
   const stem = (state.fileName || "loop").replace(/\.[^.]+$/, "");
   const safeName = lp.name.replace(/[^a-z0-9_\-]/gi, "_") || "loop";
   downloadBlob(blob, `${stem}.${safeName}.wav`, "audio/wav");
   showToast(`Exported "${lp.name}" as WAV.`, "success");
+}
+
+/* ---------- Loop preview playback ---------- */
+
+function makeReversedBuffer(startSec, endSec) {
+  const buf = state.buffer;
+  const sr = buf.sampleRate;
+  const numCh = buf.numberOfChannels;
+  const s0 = Math.max(0, Math.round(startSec * sr));
+  const s1 = Math.min(buf.length, Math.round(endSec * sr));
+  const n = Math.max(1, s1 - s0);
+  const out = state.audioCtx.createBuffer(numCh, n, sr);
+  for (let c = 0; c < numCh; c++) {
+    const src = buf.getChannelData(c);
+    const dst = out.getChannelData(c);
+    for (let i = 0; i < n; i++) dst[i] = src[s1 - 1 - i];
+  }
+  return out;
+}
+
+function stopLoopPreview() {
+  if (state.loopPreviewSource) {
+    try { state.loopPreviewSource.stop(); } catch (_) {}
+    try { state.loopPreviewSource.disconnect(); } catch (_) {}
+    state.loopPreviewSource = null;
+  }
+  state.loopPreviewReversed = false;
+  updateLoopPreviewButtons();
+}
+
+function playLoopPreview(reversed) {
+  if (!state.buffer) { showToast("Load audio first.", "error"); return; }
+  if (state.loopIn == null || state.loopOut == null) { showToast("Set In and Out first.", "error"); return; }
+  // Toggle off if same mode is active
+  if (state.loopPreviewSource && state.loopPreviewReversed === reversed) { stopLoopPreview(); return; }
+  stopLoopPreview();
+  const a = Math.min(state.loopIn, state.loopOut);
+  const b = Math.max(state.loopIn, state.loopOut);
+  if (state.audioCtx.state === "suspended") state.audioCtx.resume();
+  const src = state.audioCtx.createBufferSource();
+  if (reversed) {
+    src.buffer = makeReversedBuffer(a, b);
+    src.loop = true;
+    src.start(0, 0);
+  } else {
+    src.buffer = state.buffer;
+    src.loop = true;
+    src.loopStart = a;
+    src.loopEnd = b;
+    src.start(0, a);
+  }
+  src.playbackRate.value = state.rate;
+  src.connect(state.gainNode);
+  state.loopPreviewSource = src;
+  state.loopPreviewReversed = reversed;
+  updateLoopPreviewButtons();
+}
+
+function updateLoopPreviewButtons() {
+  const fwdActive = state.loopPreviewSource && !state.loopPreviewReversed;
+  const revActive = state.loopPreviewSource && state.loopPreviewReversed;
+  el.btnLoopPreview.classList.toggle("on", fwdActive);
+  el.btnLoopPreview.innerHTML = fwdActive
+    ? `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M6 6h12v12H6z"/></svg> Stop`
+    : `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Preview`;
+  el.btnLoopPreviewRev.classList.toggle("on", revActive);
+  el.btnLoopPreviewRev.innerHTML = revActive
+    ? `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M6 6h12v12H6z"/></svg> Stop`
+    : `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M16 5v14l-11-7z"/></svg> Reversed`;
 }
 
 function updatePlayhead() {
@@ -1825,7 +1907,7 @@ function exportJson() {
     sampleRate: state.buffer ? state.buffer.sampleRate : null,
     channels: state.buffer ? state.buffer.numberOfChannels : null,
     loop: state.loopIn != null && state.loopOut != null ? { in: state.loopIn, out: state.loopOut } : null,
-    savedLoops: state.savedLoops.map(lp => ({ name: lp.name, in: lp.in, out: lp.out })),
+    savedLoops: state.savedLoops.map(lp => ({ name: lp.name, in: lp.in, out: lp.out, reversed: lp.reversed || false })),
     tempo: state.bpm ? {
       bpm: state.bpm,
       offset: state.beatOffset,
@@ -1900,7 +1982,7 @@ async function importJson(file) {
     if (Array.isArray(parsed.savedLoops)) {
       state.savedLoops = parsed.savedLoops
         .filter(lp => typeof lp.in === "number" && typeof lp.out === "number")
-        .map(lp => ({ id: uid(), name: String(lp.name || "Loop"), in: lp.in, out: lp.out }));
+        .map(lp => ({ id: uid(), name: String(lp.name || "Loop"), in: lp.in, out: lp.out, reversed: lp.reversed === true }));
     }
     if (parsed.tempo && typeof parsed.tempo.bpm === "number") {
       setBpm(parsed.tempo.bpm);
@@ -1998,6 +2080,8 @@ function bindEvents() {
     state.snapToZero = e.target.checked;
     showToast(state.snapToZero ? "Snap to zero-crossing on" : "Snap to zero-crossing off");
   });
+  el.btnLoopPreview.addEventListener("click", () => playLoopPreview(false));
+  el.btnLoopPreviewRev.addEventListener("click", () => playLoopPreview(true));
   el.btnLoopSave.addEventListener("click", () => {
     if (!state.buffer) { showToast("Load audio first.", "error"); return; }
     if (state.loopIn == null || state.loopOut == null) { showToast("Set In and Out points first.", "error"); return; }
@@ -2005,10 +2089,23 @@ function bindEvents() {
     const b = Math.max(state.loopIn, state.loopOut);
     if (b - a < 0.01) { showToast("Loop region too short.", "error"); return; }
     const name = el.loopName.value.trim() || `Loop ${state.savedLoops.length + 1}`;
-    state.savedLoops.push({ id: uid(), name, in: a, out: b });
+    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: false });
     el.loopName.value = "";
     renderSavedLoops();
     showToast(`Saved "${name}".`, "success");
+  });
+  el.btnLoopSaveRev.addEventListener("click", () => {
+    if (!state.buffer) { showToast("Load audio first.", "error"); return; }
+    if (state.loopIn == null || state.loopOut == null) { showToast("Set In and Out points first.", "error"); return; }
+    const a = Math.min(state.loopIn, state.loopOut);
+    const b = Math.max(state.loopIn, state.loopOut);
+    if (b - a < 0.01) { showToast("Loop region too short.", "error"); return; }
+    const base = el.loopName.value.trim() || `Loop ${state.savedLoops.length + 1}`;
+    const name = base.endsWith("(rev)") ? base : `${base} (rev)`;
+    state.savedLoops.push({ id: uid(), name, in: a, out: b, reversed: true });
+    el.loopName.value = "";
+    renderSavedLoops();
+    showToast(`Saved reversed "${name}".`, "success");
   });
   el.savedLoopsList.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");

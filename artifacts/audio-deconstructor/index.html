@@ -150,9 +150,20 @@
               <span>In</span><strong id="loop-in-readout">—</strong>
               <span>Out</span><strong id="loop-out-readout">—</strong>
             </div>
+            <div class="loop-preview-row">
+              <button class="btn small toggle" id="btn-loop-preview" title="Preview loop region in isolation">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                Preview
+              </button>
+              <button class="btn small ghost toggle" id="btn-loop-preview-rev" title="Preview loop reversed">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M16 5v14l-11-7z"/></svg>
+                Reversed
+              </button>
+            </div>
             <div class="loop-save-row">
               <input type="text" id="loop-name" placeholder="Loop name…" class="loop-name-input" maxlength="48" />
               <button class="btn small primary" id="btn-loop-save" title="Save current loop region to the list">Save</button>
+              <button class="btn small ghost" id="btn-loop-save-rev" title="Save reversed version of this loop">↩ Rev</button>
             </div>
             <div id="saved-loops-list" class="saved-loops"></div>
             <p class="muted-note" id="loops-empty-hint">Set In &amp; Out, name the loop, then Save. Export any saved loop as a WAV file.</p>
