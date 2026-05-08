@@ -57,6 +57,7 @@ const state = {
   snapToBeat: false,
   _tapTimes: [],             // recent tap timestamps (ctx-time seconds)
   energyHistory: [],       // recent rms samples (for energy view)
+  savedLoops: [],          // {id, name, in, out}
   observations: [],        // recent observation messages
   lastObsTime: -10,
   smoothedRms: 0,
@@ -100,6 +101,9 @@ const el = {
   loopInReadout: q("#loop-in-readout"),
   loopOutReadout: q("#loop-out-readout"),
   snapZero: q("#snap-zero"),
+  loopName: q("#loop-name"),
+  btnLoopSave: q("#btn-loop-save"),
+  savedLoopsList: q("#saved-loops-list"),
 
   btnTap: q("#btn-tap"),
   bpmInput: q("#bpm-input"),
@@ -245,6 +249,7 @@ async function handleFile(file) {
     state.zoom = 1;
     state.loopIn = null;
     state.loopOut = null;
+    state.savedLoops = [];
     state.markers = [];
     state.observations = [];
     state.energyHistory = [];
@@ -259,6 +264,7 @@ async function handleFile(file) {
     renderMarkerList();
     renderLoopRegion();
     updateLoopReadout();
+    renderSavedLoops();
     el.emptyState.style.display = "none";
     el.playhead.style.display = "block";
     showToast("Track loaded.", "success");
@@ -1038,6 +1044,80 @@ function updateLoopReadout() {
   el.loopOutReadout.textContent = state.loopOut != null ? formatTime(Math.max(state.loopOut, state.loopIn ?? state.loopOut)) : "—";
 }
 
+/* ---------- Saved loops ---------- */
+
+function renderSavedLoops() {
+  const hint = q("#loops-empty-hint");
+  if (!state.savedLoops.length) {
+    el.savedLoopsList.innerHTML = "";
+    if (hint) hint.style.display = "";
+    return;
+  }
+  if (hint) hint.style.display = "none";
+  el.savedLoopsList.innerHTML = state.savedLoops.map((lp, i) => {
+    const dur = (lp.out - lp.in).toFixed(2);
+    return `<div class="saved-loop-item" data-idx="${i}">
+      <div class="saved-loop-info">
+        <span class="saved-loop-name">${escapeHtml(lp.name)}</span>
+        <span class="saved-loop-times">${formatTime(lp.in)} – ${formatTime(lp.out)}<em>${dur}s</em></span>
+      </div>
+      <div class="saved-loop-actions">
+        <button class="btn small ghost" data-action="load" data-idx="${i}" title="Load this region into the loop points">Load</button>
+        <button class="btn small ghost" data-action="export" data-idx="${i}" title="Export loop as 32-bit float WAV">WAV</button>
+        <button class="btn icon ghost danger" data-action="delete" data-idx="${i}" title="Delete">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- WAV encoder (IEEE float 32-bit PCM) ---------- */
+
+function writeWavStr(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function encodeWav(buffer, startSec, endSec) {
+  const sr = buffer.sampleRate;
+  const numCh = buffer.numberOfChannels;
+  const s0 = Math.max(0, Math.round(startSec * sr));
+  const s1 = Math.min(buffer.length, Math.round(endSec * sr));
+  const n = Math.max(0, s1 - s0);
+  const dataBytes = n * numCh * 4; // float32
+  const ab = new ArrayBuffer(44 + dataBytes);
+  const v = new DataView(ab);
+  writeWavStr(v, 0, "RIFF");
+  v.setUint32(4, 36 + dataBytes, true);
+  writeWavStr(v, 8, "WAVE");
+  writeWavStr(v, 12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 3, true);           // IEEE float
+  v.setUint16(22, numCh, true);
+  v.setUint32(24, sr, true);
+  v.setUint32(28, sr * numCh * 4, true);
+  v.setUint16(32, numCh * 4, true);
+  v.setUint16(34, 32, true);
+  writeWavStr(v, 36, "data");
+  v.setUint32(40, dataBytes, true);
+  const chs = [];
+  for (let c = 0; c < numCh; c++) chs.push(buffer.getChannelData(c));
+  let off = 44;
+  for (let i = s0; i < s1; i++) {
+    for (let c = 0; c < numCh; c++) { v.setFloat32(off, chs[c][i], true); off += 4; }
+  }
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+function exportLoopAsWav(lp) {
+  if (!state.buffer) { showToast("No audio loaded.", "error"); return; }
+  const blob = encodeWav(state.buffer, lp.in, lp.out);
+  const stem = (state.fileName || "loop").replace(/\.[^.]+$/, "");
+  const safeName = lp.name.replace(/[^a-z0-9_\-]/gi, "_") || "loop";
+  downloadBlob(blob, `${stem}.${safeName}.wav`, "audio/wav");
+  showToast(`Exported "${lp.name}" as WAV.`, "success");
+}
+
 function updatePlayhead() {
   if (!state.buffer) return;
   const t = currentTime();
@@ -1745,6 +1825,7 @@ function exportJson() {
     sampleRate: state.buffer ? state.buffer.sampleRate : null,
     channels: state.buffer ? state.buffer.numberOfChannels : null,
     loop: state.loopIn != null && state.loopOut != null ? { in: state.loopIn, out: state.loopOut } : null,
+    savedLoops: state.savedLoops.map(lp => ({ name: lp.name, in: lp.in, out: lp.out })),
     tempo: state.bpm ? {
       bpm: state.bpm,
       offset: state.beatOffset,
@@ -1816,6 +1897,11 @@ async function importJson(file) {
       state.loopIn = parsed.loop.in;
       state.loopOut = parsed.loop.out;
     }
+    if (Array.isArray(parsed.savedLoops)) {
+      state.savedLoops = parsed.savedLoops
+        .filter(lp => typeof lp.in === "number" && typeof lp.out === "number")
+        .map(lp => ({ id: uid(), name: String(lp.name || "Loop"), in: lp.in, out: lp.out }));
+    }
     if (parsed.tempo && typeof parsed.tempo.bpm === "number") {
       setBpm(parsed.tempo.bpm);
       setBeatOffset(parsed.tempo.offset || 0);
@@ -1826,6 +1912,7 @@ async function importJson(file) {
     renderLoopRegion();
     drawOverview();
     updateLoopReadout();
+    renderSavedLoops();
     showToast(`Imported ${state.markers.length} markers.`, "success");
   } catch (e) {
     showToast("Could not import that JSON file.", "error");
@@ -1910,6 +1997,36 @@ function bindEvents() {
   el.snapZero.addEventListener("change", (e) => {
     state.snapToZero = e.target.checked;
     showToast(state.snapToZero ? "Snap to zero-crossing on" : "Snap to zero-crossing off");
+  });
+  el.btnLoopSave.addEventListener("click", () => {
+    if (!state.buffer) { showToast("Load audio first.", "error"); return; }
+    if (state.loopIn == null || state.loopOut == null) { showToast("Set In and Out points first.", "error"); return; }
+    const a = Math.min(state.loopIn, state.loopOut);
+    const b = Math.max(state.loopIn, state.loopOut);
+    if (b - a < 0.01) { showToast("Loop region too short.", "error"); return; }
+    const name = el.loopName.value.trim() || `Loop ${state.savedLoops.length + 1}`;
+    state.savedLoops.push({ id: uid(), name, in: a, out: b });
+    el.loopName.value = "";
+    renderSavedLoops();
+    showToast(`Saved "${name}".`, "success");
+  });
+  el.savedLoopsList.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const lp = state.savedLoops[idx];
+    if (!lp) return;
+    if (btn.dataset.action === "load") {
+      state.loopIn = lp.in;
+      state.loopOut = lp.out;
+      renderLoopRegion(); drawOverview(); updateLoopReadout(); scheduleLoopWatcher();
+      showToast(`Loop "${lp.name}" loaded.`, "success");
+    } else if (btn.dataset.action === "export") {
+      exportLoopAsWav(lp);
+    } else if (btn.dataset.action === "delete") {
+      state.savedLoops.splice(idx, 1);
+      renderSavedLoops();
+    }
   });
 
   // Tempo controls
