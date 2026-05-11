@@ -33,7 +33,7 @@
   --radius: 10px;
   --radius-sm: 6px;
   --font-sans: 'Figtree', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-mono: 'Space Mono', ui-monospace, Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
