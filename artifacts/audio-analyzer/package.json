@@ -8,7 +8,7 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build:offline": "vite build --config vite.offline.config.ts"
+    "build:offline": "vite build --config vite.offline.config.ts && python3 -c \"import zipfile; z=zipfile.ZipFile('public/ll-audio-analyzer-offline.zip','w',zipfile.ZIP_DEFLATED); z.write('dist-offline/index.html','ll-audio-analyzer.html'); z.close()\""
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
