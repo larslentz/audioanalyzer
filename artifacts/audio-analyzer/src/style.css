@@ -613,19 +613,18 @@ select:focus { border-color: var(--accent); }
 ::-webkit-scrollbar-thumb { background: #1c2632; border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: #2a3744; }
 
-/* ---------- Site footer ---------- */
-.site-footer {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 10px 16px;
-  font-size: 11px; color: var(--text-mute);
-  border-top: 1px solid var(--line);
+/* ---------- Brand links ---------- */
+.brand-links {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 8px;
 }
-.site-footer a {
-  color: var(--text-dim); text-decoration: none;
+.brand-links a {
+  color: var(--text-mute); text-decoration: none;
+  font-size: 11px;
   transition: color .15s;
 }
-.site-footer a:hover { color: var(--accent); }
-.footer-sep { color: var(--line); user-select: none; }
+.brand-links a:hover { color: var(--accent); }
+.footer-sep { color: var(--line); user-select: none; font-size: 11px; }
 
 /* ---------- Responsive guard ---------- */
 @media (max-width: 1100px) {
