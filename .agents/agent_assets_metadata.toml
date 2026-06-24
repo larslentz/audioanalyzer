@@ -6,3 +6,9 @@ id = "frnXdoe8RJ1-RmwsLIMwz"
 uri = "file://artifacts/audio-analyzer/ll-audio-analyzer-offline.zip"
 type = "unspecified"
 title = "LL Audio Analyzer — offline build"
+
+[[outputs]]
+id = "sY9OHg1PcyY23pQr_Dic8"
+uri = "file://artifacts/intro-video/public/audio/bg_music.mp3"
+type = "audio"
+title = "background music"
