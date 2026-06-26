@@ -1,5 +1,16 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "v1zGKwmjvVysJsTZkeJOt"
+uri = "file://artifacts/audio-analyzer/public/icons/icon-512.png"
+type = "image"
+title = "audio-analyzer pwa icon 512"
+
+[[generated]]
+id = "r9gmjKCehKj_99ET84L3j"
+uri = "file://artifacts/audio-analyzer/public/icons/icon-192.png"
+type = "image"
+title = "audio-analyzer pwa icon 192"
 
 [[outputs]]
 id = "frnXdoe8RJ1-RmwsLIMwz"
