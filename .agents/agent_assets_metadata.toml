@@ -23,3 +23,9 @@ id = "sY9OHg1PcyY23pQr_Dic8"
 uri = "file://artifacts/intro-video/public/audio/bg_music.mp3"
 type = "audio"
 title = "background music"
+
+[[outputs]]
+id = "r5xHSLvgYlqSM933b99wP"
+uri = "file://ll-audio-analyzer-github-pages.zip"
+type = "unspecified"
+title = "LL Audio Analyzer — GitHub Pages Upload"
