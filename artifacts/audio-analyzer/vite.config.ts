@@ -35,10 +35,14 @@ export default defineConfig({
     runtimeErrorOverlay(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
+      includeAssets: [
+        "favicon.svg",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+      ],
       manifest: {
-        name: "Lars Lentz's Audio Analyzer",
-        short_name: "LL Analyzer",
+        name: "Audio Analyzer",
+        short_name: "Audio Analyzer",
         description:
           "Browser-only workstation for studying how a track is built. Waveform, spectrum, spectrogram, stereo image, loudness metering, tempo detection, markers and notes — all offline.",
         theme_color: "#00e0a4",
@@ -100,7 +104,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      "@assets": path.resolve(
+        import.meta.dirname,
+        "..",
+        "..",
+        "attached_assets",
+      ),
     },
     dedupe: ["react", "react-dom"],
   },

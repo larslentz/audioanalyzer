@@ -13,8 +13,8 @@ export default defineConfig({
         "icons/icon-512.png",
       ],
       manifest: {
-        name: "Lars Lentz's Audio Analyzer",
-        short_name: "LL Analyzer",
+        name: "Audio Analyzer",
+        short_name: "Audio Analyzer",
         description:
           "Browser-only workstation for studying how a track is built. Waveform, spectrum, spectrogram, stereo image, loudness metering, tempo detection, markers and notes — all offline.",
         theme_color: "#00e0a4",

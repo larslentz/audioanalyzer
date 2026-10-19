@@ -1944,7 +1944,7 @@ function drawEnergyHistory() {
 
 function exportJson() {
   const session = {
-    app: "Lars Lentz's Audio Analyzer",
+    app: "Audio Analyzer",
     version: 1,
     file: state.fileName || null,
     duration: state.buffer ? state.buffer.duration : null,
