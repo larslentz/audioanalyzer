@@ -1,0 +1,1 @@
+- [GitHub write authentication](github-write-auth.md) — public reads do not prove Replit has authenticated push access.
