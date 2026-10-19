@@ -1,1 +1,2 @@
 - [GitHub write authentication](github-write-auth.md) — public reads do not prove Replit has authenticated push access.
+- [GitHub Pages main-only deployment](github-pages-main-only.md) — publish Pages from Actions on `main`; do not create a `gh-pages` branch.
