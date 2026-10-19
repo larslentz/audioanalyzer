@@ -7,7 +7,11 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
+      includeAssets: [
+        "favicon.svg",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+      ],
       manifest: {
         name: "Lars Lentz's Audio Analyzer",
         short_name: "LL Analyzer",
@@ -70,7 +74,7 @@ export default defineConfig({
   },
   root: path.resolve(import.meta.dirname),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist-gh-pages"),
+    outDir: path.resolve(import.meta.dirname, "dist-pages"),
     emptyOutDir: true,
   },
 });

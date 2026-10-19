@@ -9,7 +9,7 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:offline": "vite build --config vite.offline.config.ts && python3 -c \"import zipfile; z=zipfile.ZipFile('public/ll-audio-analyzer-offline.zip','w',zipfile.ZIP_DEFLATED); z.write('dist-offline/index.html','ll-audio-analyzer.html'); z.close()\"",
-    "build:gh-pages": "vite build --config vite.gh-pages.config.ts"
+    "build:pages": "vite build --config vite.pages.config.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
